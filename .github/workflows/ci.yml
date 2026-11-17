@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     strategy:
@@ -24,6 +28,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npm audit --omit=dev --audit-level=high
       # GitHub-hosted runners ship Google Chrome; tests drive it headless.
       - run: npm test
       - run: npm run build

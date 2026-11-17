@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,6 +20,27 @@ describe("loadPolicy", () => {
     expect(() => loadPolicy(f)).toThrow();
     writeFileSync(f, JSON.stringify({ allowDomains: ["typo.com"] }));
     expect(() => loadPolicy(f)).toThrow();
+  });
+});
+
+describe("domain entries", () => {
+  const load = (o: object) => {
+    const f = join(dir, "d.json");
+    writeFileSync(f, JSON.stringify(o));
+    return loadPolicy(f);
+  };
+
+  it("normalises case, wildcards, trailing dots and internationalised names", () => {
+    const p = load({ blockedDomains: [" Evil.COM. ", "*.bad.org", "bücher.de"] });
+    expect(p.blockedDomains).toEqual(["evil.com", "bad.org", "xn--bcher-kva.de"]);
+    expect(checkUrl(p, "https://www.xn--bcher-kva.de/")).toMatch(/blocked/);
+    expect(checkUrl(p, "https://bücher.de/")).toMatch(/blocked/);
+  });
+
+  it("rejects entries that could never match a host", () => {
+    for (const bad of ["https://evil.com", "evil.com/path", "evil.com:8080", "user@evil.com", "", "a b.com"])
+      expect(() => load({ blockedDomains: [bad] }), bad).toThrow(/bare domain/);
+    expect(() => load({ allowedDomains: ["https://ok.com"] })).toThrow(/bare domain/);
   });
 });
 
@@ -59,6 +80,7 @@ describe("createLog", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0].tool).toBe("open");
     expect(lines[1].args.text).toBe("[redacted]");
+    if (process.platform !== "win32") expect(statSync(f).mode & 0o077).toBe(0); // not readable by other users
     expect(readFileSync(f, "utf8")).not.toContain("hunter2");
   });
 });
