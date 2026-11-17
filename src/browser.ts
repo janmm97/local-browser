@@ -252,12 +252,20 @@ export class Session {
   }
 }
 
-/** What the approval prompt shows about an element. Reads properties off the element, not the form, so a page can't spoof them (form.action can be clobbered by an input named "action"). */
+/**
+ * What the approval prompt shows about an element. The form's target is read through the prototype getter,
+ * because `form.action` can be clobbered by an input named "action".
+ */
 function describe(el: Locator) {
   return el.evaluate((e) => {
     const b = e as HTMLInputElement; // button and input share the properties used here
     const submit = (e instanceof HTMLButtonElement && b.type === "submit") || (e instanceof HTMLInputElement && (b.type === "submit" || b.type === "image"));
-    const formAction = b.form ? b.formAction || document.URL : "";
+    // button.formAction falls back to the page URL when the attribute is missing, so only use it when it's set
+    const formAction = !b.form
+      ? ""
+      : b.hasAttribute("formaction")
+        ? b.formAction
+        : (Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, "action")!.get!.call(b.form) as string);
     return {
       submit: submit && !!b.form,
       label: (b.innerText || b.value || b.alt || "").replace(/\s+/g, " ").trim().slice(0, 80),
