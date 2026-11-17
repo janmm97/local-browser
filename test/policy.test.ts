@@ -29,6 +29,8 @@ describe("checkUrl", () => {
   it("allows http(s) and about:blank by default", () => {
     expect(checkUrl(p, "https://example.com/a")).toBeNull();
     expect(checkUrl(p, "about:blank")).toBeNull();
+    expect(checkUrl(p, "about:blank?q=1")).toBeNull();
+    expect(checkUrl(p, "about:settings")).toMatch(/not allowed/);
   });
 
   it("blocks local and internal schemes", () => {
