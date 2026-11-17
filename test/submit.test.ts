@@ -8,7 +8,7 @@ import { loadPolicy, type Policy } from "../src/policy.js";
 
 // Submit paths the click detection can't see by itself (security review of PR #2).
 const HOME = `<title>S</title>
-<form id="f" method="post" action="/post"><input name="q"></form>
+<form id="f" method="post" action="/post"><input name="q"><input type="hidden" name="action" value="/fake"></form>
 <button form="f">Outside</button>
 <div role="button" onclick="document.getElementById('f').submit()">Scripted</div>
 <form method="post" action="/post"><button>Inside</button></form>`;
