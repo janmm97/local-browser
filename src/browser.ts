@@ -41,8 +41,9 @@ const CHECK_NOTE = "note: this page shows a bot check or CAPTCHA. Don't try to s
 
 // Shown on the check page while local-browser waits; fixed text only, no page input.
 function showNotice(on: boolean) {
-  document.getElementById("__lb_notice")?.remove();
-  if (!on) return;
+  const old = document.getElementById("__lb_notice");
+  if (!on) old?.remove();
+  if (!on || old) return;
   const d = document.createElement("div");
   d.id = "__lb_notice";
   d.textContent = "local-browser: an AI agent is waiting for you to complete this check. It carries on by itself once the check is gone.";
@@ -90,6 +91,8 @@ export class Session {
   private humanDriving = false;
   // the last tab opened while the human had the browser (ask_human): the agent follows it after Done
   private openedByHuman: Page | null = null;
+  // origin of the check page while waitOutCheck runs: challenges (e.g. Cloudflare) finish with a POST to it
+  private checkOrigin: string | null = null;
   private log: ReturnType<typeof createLog>;
   /** Resolves when the browser context closes (the human closed the window, or close() ran). */
   readonly closed: Promise<void>;
@@ -146,7 +149,9 @@ export class Session {
       // during ask_human a POST passes only within a few seconds of a real human click or key press (isTrusted events,
       // reported by the init script in launch()), so an ordinary page doesn't POST on its own while the human takes their
       // time. A hostile page can still get past this (see launch()), as it can with fetch(), which was never gated.
-      if (post && this.opts.policy.confirm.includes("submit") && !(this.humanDriving && (await this.recentGesture()))) {
+      // While the user does a bot check, a POST back to the check page's origin passes too: no more than fetch() could do.
+      const checkPost = this.checkOrigin !== null && new URL(req.url()).origin === this.checkOrigin;
+      if (post && this.opts.policy.confirm.includes("submit") && !(this.humanDriving && (checkPost || (await this.recentGesture())))) {
         if (this.approvedTarget === null || noHash(req.url()) !== noHash(this.approvedTarget)) {
           this.blockedSubmit = true;
           return route.abort("aborted"); // "aborted" keeps the current page instead of showing an error page
@@ -266,20 +271,25 @@ export class Session {
     this.log({ tool: "wait_for_human", args: {}, outcome: "ok", detail: "bot check or CAPTCHA shown, waiting for the human", url: page.url() });
     this.humanDriving = true;
     this.lastGesture = 0;
+    this.checkOrigin = new URL(page.url()).origin;
     try {
       await page.bringToFront().catch(() => {});
       const end = Date.now() + (this.opts.handoffTimeoutMs ?? 600_000);
       // two clear polls in a row: a challenge often reloads itself between steps
       for (let clear = 0; clear < 2; ) {
         if (page.isClosed()) throw new Denied("the tab with the bot check was closed");
-        if (Date.now() > end) throw new Denied("the bot check or CAPTCHA was not completed in time. Do not retry unless the user asks.");
+        if (Date.now() > end)
+          throw new Denied(`the bot check or CAPTCHA was not completed in time${this.blockedSubmit ? " (a form submit was blocked meanwhile)" : ""}. Do not retry unless the user asks.`);
         await page.evaluate(showNotice, true).catch(() => {}); // again after each reload
         await new Promise((r) => setTimeout(r, 1_000));
-        // an error means the page is navigating: count it as still checking
-        clear = (await page.evaluate(botCheck, true).catch(() => true)) ? 0 : clear + 1;
+        // an error or a hung page counts as still checking (a hung page can't hold the wait past the timeout)
+        clear = (await withTimeout(page.evaluate(botCheck, true), 2_000).catch(() => true)) ? 0 : clear + 1;
       }
     } finally {
       this.humanDriving = false;
+      this.checkOrigin = null;
+      // a popup the check (or an ad) opened meanwhile doesn't become the agent's tab
+      if (!page.isClosed()) this.page = page;
       await page.evaluate(showNotice, false).catch(() => {});
     }
     await page.waitForLoadState("domcontentloaded").catch(() => {});
@@ -413,6 +423,9 @@ function describe(el: Locator) {
 }
 
 const noHash = (u: string) => u.split("#")[0];
+
+const withTimeout = <T>(p: Promise<T>, ms: number) =>
+  Promise.race([p, new Promise<never>((_, no) => setTimeout(() => no(new Error("timed out")), ms))]);
 
 /** A step the policy or the human refused (as opposed to a technical error). */
 export class Denied extends Error {}

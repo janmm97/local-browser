@@ -23,6 +23,10 @@ const PAGES: Record<string, string> = {
   // a normal page with a visible CAPTCHA widget (a contact form): flagged in a snapshot, but nothing to wait for
   "/form": `<title>Contact</title><div class="g-recaptcha" style="height:80px;width:300px"></div><p>${"Write to us. ".repeat(150)}</p>`,
   "/traffic": `<title>Busy</title><p>We are seeing unusual traffic right now. Please try again later.</p>`,
+  // a Cloudflare-style challenge that finishes with a form POST nobody clicked
+  "/cf": `<title>Just a moment...</title><form id="challenge-form" method="post" action="/cf-pass"></form>
+    <script>setTimeout(() => document.getElementById("challenge-form").submit(), 1000)</script>`,
+  "/cf-pass": `<title>Passed</title><p>Welcome</p>`,
   "/check": `<title>Access denied</title><div id="px-captcha" style="height:80px"></div><p>Press &amp; Hold to confirm you are a human</p>`,
 };
 
@@ -109,6 +113,15 @@ describe("Session", { timeout: 60_000 }, () => {
         expect(log().at(-1)).toMatchObject({ tool: "open", outcome: "denied" });
       },
       { waitForChecks: true, handoffTimeoutMs: 4_000 },
+    ));
+
+  it("lets a challenge's own POST back to its origin through while waiting", () =>
+    withSession(
+      {},
+      async (s) => {
+        expect(await s.open(`${base}/cf`)).toMatch(/^ok: Passed/);
+      },
+      { waitForChecks: true, handoffTimeoutMs: 6_000 },
     ));
 
   it("does not wait on a CAPTCHA widget in a normal page or on an unrelated 'unusual traffic' message", () =>
