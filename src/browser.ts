@@ -13,16 +13,18 @@ export type SessionOptions = {
   headless?: boolean;
   /** How long a human has to answer an approval prompt. */
   approvalTimeoutMs?: number;
+  /** How long ask_human waits for the human to finish and click Done (default 10 minutes). */
+  handoffTimeoutMs?: number;
 };
 
 // No page-controlled text ever goes into this markup: the detail is set as textContent after load.
-const APPROVAL_HTML = (action: string) => `<!doctype html>
+const APPROVAL_HTML = (action: string, yes: string, no: string) => `<!doctype html>
 <title>local-browser: approve?</title>
 <body style="font:16px system-ui;max-width:640px;margin:48px auto">
-<h1>An AI agent wants to: ${action}</h1>
+<h1>${action}</h1>
 <pre id="d" style="white-space:pre-wrap;background:#f3f3f3;padding:12px"></pre>
-<button id="allow" style="font-size:18px" disabled>Allow</button>
-<button id="deny" style="font-size:18px" disabled>Deny</button>
+<button id="allow" style="font-size:18px" disabled>${yes}</button>
+<button id="deny" style="font-size:18px" disabled>${no}</button>
 <script>
 // only real human clicks count (synthetic events are untrusted)
 for (const id of ["allow", "deny"])
@@ -31,8 +33,11 @@ for (const id of ["allow", "deny"])
 
 export const BUTTON_DELAY_MS = 1_000;
 
-/** Opens a local Allow/Deny tab and resolves true only on a real click on Allow. Timeout or closing the tab means no. */
-export async function askHuman(context: BrowserContext, action: string, detail: string, timeoutMs: number) {
+/**
+ * Opens a local yes/no tab and resolves true only on a real click on the yes button. Timeout or closing the tab means no.
+ * `title` and the labels are fixed strings from this file; page-controlled text only ever goes in `detail`.
+ */
+export async function askHuman(context: BrowserContext, title: string, detail: string, timeoutMs: number, yes = "Allow", no = "Deny") {
   const prompt = await context.newPage();
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -42,7 +47,7 @@ export async function askHuman(context: BrowserContext, action: string, detail: 
     await prompt.exposeBinding("__lbDecide", (_src, id: string) => decide(id));
     prompt.once("close", () => decide("closed"));
     timer = setTimeout(() => decide("timeout"), timeoutMs);
-    await prompt.setContent(APPROVAL_HTML(action));
+    await prompt.setContent(APPROVAL_HTML(title, yes, no));
     await prompt.locator("#d").evaluate((el, d) => { el.textContent = d; }, detail);
     await prompt.bringToFront();
     // the buttons start disabled, so a click meant for the page can't land on Allow (like Chrome's permission prompts)
@@ -61,6 +66,8 @@ export class Session {
   // the form target the human approved, set only while that click/Enter runs; one POST to it may pass (see guard)
   private approvedTarget: string | null = null;
   private blockedSubmit = false;
+  // true while the human has the browser (ask_human): their own form submits go through, the domain policy still applies
+  private humanDriving = false;
   private log: ReturnType<typeof createLog>;
   /** Resolves when the browser context closes (the human closed the window, or close() ran). */
   readonly closed: Promise<void>;
@@ -102,7 +109,7 @@ export class Session {
     if (req.isNavigationRequest()) {
       if (checkUrl(this.opts.policy, req.url())) return route.abort("blockedbyclient");
       const post = req.method() !== "GET" && req.method() !== "HEAD";
-      if (post && this.opts.policy.confirm.includes("submit")) {
+      if (post && this.opts.policy.confirm.includes("submit") && !this.humanDriving) {
         if (this.approvedTarget === null || noHash(req.url()) !== noHash(this.approvedTarget)) {
           this.blockedSubmit = true;
           return route.abort("aborted"); // "aborted" keeps the current page instead of showing an error page
@@ -147,7 +154,7 @@ export class Session {
     try {
       const ok = await askHuman(
         this.context,
-        kind === "submit" ? "submit a form" : "type into a password field",
+        `An AI agent wants to: ${kind === "submit" ? "submit a form" : "type into a password field"}`,
         detail,
         this.opts.approvalTimeoutMs ?? 120_000,
       );
@@ -232,6 +239,37 @@ export class Session {
       },
       true,
     );
+  }
+
+  /**
+   * Hands the browser to the human for a step only a person should do (a CAPTCHA, a "press and hold" bot check,
+   * a 2FA login). The agent never solves those itself: it waits until the human clicks Done, then carries on in the
+   * same session. Returns a fresh snapshot.
+   */
+  handoff(reason: string) {
+    return this.run("ask_human", { reason }, async () => {
+      if (this.opts.headless) throw new Denied("ask_human needs a visible browser window: run without --headless");
+      const where = `${await this.page.title()} (${this.page.url()})`;
+      this.approving = true;
+      this.humanDriving = true;
+      try {
+        const done = await askHuman(
+          this.context,
+          "An AI agent needs you to do a step yourself",
+          `${reason}\n\nOn: ${where}\n\nSwitch to that tab, do it there, then come back to this tab and click Done.`,
+          this.opts.handoffTimeoutMs ?? 600_000,
+          "Done",
+          "Give up",
+        );
+        if (!done) throw new Denied("the human gave up or didn't answer. Do not retry unless the user asks.");
+      } finally {
+        this.approving = false;
+        this.humanDriving = false;
+        await this.page.bringToFront().catch(() => {});
+      }
+      await this.page.waitForLoadState("domcontentloaded").catch(() => {});
+      return this.page.evaluate(pageSnapshot, this.opts.policy.maxSnapshotChars);
+    });
   }
 
   scroll(direction: "up" | "down") {

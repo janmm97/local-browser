@@ -57,6 +57,13 @@ export function createServer(opts: SessionOptions) {
     { ref, text: z.string(), submit: z.boolean().optional() },
     (s, a) => text(s.type(a.ref, a.text, a.submit)),
   );
+  tool(
+    "ask_human",
+    "Hand the browser to the user for a step only a person should do: a CAPTCHA, a press-and-hold or other bot check, a 2FA code. Never try to solve those yourself. Waits until the user clicks Done (up to 10 minutes), then returns a fresh snapshot." +
+      UNTRUSTED,
+    { reason: z.string().max(300).describe("What the user should do, in one short sentence") },
+    (s, a) => text(s.handoff(a.reason)),
+  );
   tool("scroll", "Scroll the page.", { direction: z.enum(["up", "down"]) }, (s, a) => text(s.scroll(a.direction)));
   tool("back", "Go back one page.", {}, (s) => text(s.back()));
   tool("screenshot", "JPEG screenshot of the visible page. Costs far more tokens than snapshot: use only when layout matters.", {}, async (s) => ({

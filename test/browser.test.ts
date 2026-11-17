@@ -13,6 +13,7 @@ const PAGES: Record<string, string> = {
     <form action="/next"><label for="q">Search</label><input id="q" name="q" value="cats">
       <input type="password" value="hunter2" aria-label="Password"><button>Go</button></form>`,
   "/next": `<title>Next</title><p>Second page</p>`,
+  "/check": `<title>Access denied</title><div id="px-captcha"></div><p>Press &amp; Hold to confirm you are a human</p>`,
 };
 
 let server: Server;
@@ -63,6 +64,15 @@ describe("Session", { timeout: 60_000 }, () => {
       expect(snap).toContain('[4] button "Go"');
       expect(snap).not.toContain("Hidden");
       expect(snap).not.toContain("hunter2");
+      expect(snap).not.toContain("bot check");
+    }));
+
+  it("flags bot checks so the agent hands them to the human", () =>
+    withSession({}, async (s, log) => {
+      await s.open(`${base}/check`);
+      expect((await s.snapshot()).split("\n")[2]).toMatch(/bot check or CAPTCHA.*call ask_human/);
+      await expect(s.handoff("Do the press-and-hold")).rejects.toThrow(/visible browser window/);
+      expect(log().at(-1)).toMatchObject({ tool: "ask_human", outcome: "denied" });
     }));
 
   it("clicks and types by ref", () =>

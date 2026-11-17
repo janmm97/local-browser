@@ -54,6 +54,7 @@ The profile and action log live in `~/.local-browser/` (`profile/`, `actions.jso
 | `scroll(up\|down)` | Scroll the page |
 | `back()` | Go back |
 | `screenshot()` | JPEG of the viewport (costs far more tokens than a snapshot) |
+| `ask_human(reason)` | Hand the browser to you for a step only a person should do (CAPTCHA, "press and hold" bot check, 2FA), then carry on in the same session |
 
 A snapshot looks like:
 ```
@@ -63,6 +64,15 @@ url: https://news.ycombinator.com/
 [3] link "new"
 ...
 ```
+
+### Bot checks and CAPTCHAs
+local-browser does **not** solve or get around CAPTCHAs or bot checks. Those are a site's access control. When a snapshot shows one, it adds a line telling the agent to call `ask_human`. Then:
+
+1. A local tab opens with the agent's reason and **Done** / **Give up** buttons.
+2. You switch to the page's tab and do the check yourself (it's your real input, in the same browser session).
+3. You click **Done**. The agent gets a fresh snapshot and carries on with the same cookies.
+
+While you have the browser, form submits go through without approval prompts (yours, and any the page itself sends in that window); the domain policy still applies. Only click **Done** after the check, and **Give up** if the agent asks for something you did not expect. The agent waits up to 10 minutes. `ask_human` needs a visible window, so it's refused with `--headless`.
 
 ### Policy
 Copy [`local-browser.policy.example.json`](local-browser.policy.example.json) and pass it with `--policy`:

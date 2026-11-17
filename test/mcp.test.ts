@@ -39,7 +39,7 @@ const call = (name: string, args: Record<string, unknown> = {}) => client.callTo
 
 it("lists the tools", async () => {
   const { tools } = await client.listTools();
-  expect(tools.map((t) => t.name).sort()).toEqual(["back", "click", "open", "screenshot", "scroll", "snapshot", "type"]);
+  expect(tools.map((t) => t.name).sort()).toEqual(["ask_human", "back", "click", "open", "screenshot", "scroll", "snapshot", "type"]);
 });
 
 it("opens, snapshots, screenshots and reports denials as tool errors", { timeout: 60_000 }, async () => {

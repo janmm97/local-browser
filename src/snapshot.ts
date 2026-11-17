@@ -59,6 +59,13 @@ export function pageSnapshot(max: number): string {
     }
   }
 
+  // bot checks and CAPTCHAs are for a person: point the agent at ask_human instead of letting it try
+  const CHECK =
+    'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="challenges.cloudflare.com"],#px-captcha,#challenge-form,.cf-turnstile,.g-recaptcha,.h-captcha';
+  const bodyText = document.body?.innerText ?? "";
+  if (document.querySelector(CHECK) || /press (&|and) hold|verify (that )?you are (a )?human|are you a robot|not a robot/i.test(bodyText))
+    lines.splice(2, 0, "note: this page shows a bot check or CAPTCHA. Don't try to solve it: call ask_human so the user can do it.");
+
   const out = lines.join("\n");
   return out.length > max ? `${out.slice(0, max)}\n… (snapshot cut at ${max} chars; scroll or raise maxSnapshotChars)` : out;
 }
