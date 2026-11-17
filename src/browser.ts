@@ -15,7 +15,8 @@ export type SessionOptions = {
   approvalTimeoutMs?: number;
 };
 
-const APPROVAL_HTML = (action: string, detail: string) => `<!doctype html>
+// No page-controlled text ever goes into this markup: the detail is set as textContent after load.
+const APPROVAL_HTML = (action: string) => `<!doctype html>
 <title>local-browser: approve?</title>
 <body style="font:16px system-ui;max-width:640px;margin:48px auto">
 <h1>An AI agent wants to: ${action}</h1>
@@ -23,11 +24,31 @@ const APPROVAL_HTML = (action: string, detail: string) => `<!doctype html>
 <button id="allow" style="font-size:18px">Allow</button>
 <button id="deny" style="font-size:18px">Deny</button>
 <script>
-document.getElementById("d").textContent = ${JSON.stringify(detail)};
 // only real human clicks count (synthetic events are untrusted)
 for (const id of ["allow", "deny"])
-  document.getElementById(id).addEventListener("click", (e) => { if (e.isTrusted) window.__lbDecision = id; });
+  document.getElementById(id).addEventListener("click", (e) => { if (e.isTrusted) window.__lbDecide(id); });
 </script>`;
+
+/** Opens a local Allow/Deny tab and resolves true only on a real click on Allow. Timeout or closing the tab means no. */
+export async function askHuman(context: BrowserContext, action: string, detail: string, timeoutMs: number) {
+  const prompt = await context.newPage();
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    // the decision lives in Node, not in a page variable a script could set
+    let decide!: (id: string) => void;
+    const decision = new Promise<string>((resolve) => (decide = resolve));
+    await prompt.exposeBinding("__lbDecide", (_src, id: string) => decide(id));
+    prompt.once("close", () => decide("closed"));
+    timer = setTimeout(() => decide("timeout"), timeoutMs);
+    await prompt.setContent(APPROVAL_HTML(action));
+    await prompt.locator("#d").evaluate((el, d) => { el.textContent = d; }, detail);
+    await prompt.bringToFront();
+    return (await decision) === "allow";
+  } finally {
+    clearTimeout(timer);
+    await prompt.close().catch(() => {});
+  }
+}
 
 export class Session {
   private queue: Promise<unknown> = Promise.resolve();
@@ -89,19 +110,15 @@ export class Session {
     if (this.opts.headless) throw new Denied(`"${kind}" needs a human yes; run headed or remove it from policy.confirm`);
     // stays true until the prompt is closed: the "page" event can fire after newPage() resolves
     this.approving = true;
-    const prompt = await this.context.newPage();
     try {
-      await prompt.setContent(APPROVAL_HTML(kind === "submit" ? "submit a form" : "type into a password field", detail));
-      await prompt.bringToFront();
-      const handle = await prompt.waitForFunction(() => (window as any).__lbDecision, null, {
-        timeout: this.opts.approvalTimeoutMs ?? 120_000,
-        polling: 200,
-      });
-      if ((await handle.jsonValue()) !== "allow") throw new Denied(`human denied: ${kind}`);
-    } catch (e) {
-      throw e instanceof Denied ? e : new Denied(`no human answer for: ${kind}`);
+      const ok = await askHuman(
+        this.context,
+        kind === "submit" ? "submit a form" : "type into a password field",
+        detail,
+        this.opts.approvalTimeoutMs ?? 120_000,
+      );
+      if (!ok) throw new Denied(`human denied or no answer: ${kind}`);
     } finally {
-      await prompt.close().catch(() => {});
       this.approving = false;
       await this.page.bringToFront().catch(() => {});
     }
