@@ -1,6 +1,6 @@
 {
   "name": "local-browser",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A safe, token-lean local browser for AI agents: CLI + MCP server over your installed Chrome or Edge.",
   "license": "MIT",
   "author": "Jan (janmm97)",

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-18
+
 ### Security
 - Policy domains are normalised (case, punycode, trailing dot, `*.`) and a non-domain entry such as `https://evil.com` is now an error instead of silently never matching.
 - Form POST navigations are blocked unless a human approved the click or Enter that caused them (closes page-JS `form.submit()`); `<button form=…>` counts as a submit; the approval prompt shows the real form target; a button swapped while the prompt is open is refused; service workers are blocked so every request is checked.
@@ -28,3 +30,6 @@ All notable changes to this project are documented here. The format follows
 - MCP server on stdio (`local-browser mcp`) with the tools `open`, `snapshot`, `click`, `type`, `scroll`, `back`, `screenshot`; the browser opens on the first call.
 - `local-browser snapshot <url>` CLI command, `--policy`, `--browser`, `--headless`, `LOCAL_BROWSER_HOME`.
 - README usage, Claude Code setup, example policy and measured snapshot sizes.
+
+[Unreleased]: https://github.com/janmm97/local-browser/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/janmm97/local-browser/releases/tag/v0.1.0
