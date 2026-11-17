@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Session } from "../dist/browser.js";
 import { loadPolicy } from "../dist/policy.js";
 
-const http = createServer((req, res) => res.writeHead(200, { "content-type": "text/html" }).end(`<title>${req.method} ${req.url}</title><form method=post action="/again"><input name=q><button>Go</button></form>`));
+const http = createServer((req, res) => res.writeHead(200, { "content-type": "text/html" }).end(`<title>${req.method} ${req.url}</title><form method=post action="${req.url === "/" ? "/done" : "/again"}"><input name=q><button>Go</button></form>`));
 await new Promise((r) => http.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${http.address().port}`;
 const dir = mkdtempSync(join(tmpdir(), "lb-handoff-"));
@@ -20,8 +20,7 @@ const s = await Session.launch({
   approvalTimeoutMs: 8_000,
 });
 const ctx = s.context;
-await s.page.goto(base);
-await s.page.setContent(`<form method=post action="${base}/done"><input name=q><button>Verify</button></form>`);
+await s.open(base); // a real navigation, so the gesture listener is installed
 
 // the "human" submits the form while they have the browser, then clicks Done: the POST must go through
 ctx.once("page", async (prompt) => {
