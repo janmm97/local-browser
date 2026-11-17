@@ -14,3 +14,6 @@ All notable changes to this project are documented here. The format follows
 - Compact snapshots: numbered refs for visible interactive elements plus headings and text; password values never shown.
 - Approval prompt: form submits and password typing wait for a human click in a separate browser tab (untrusted, scripted clicks don't count); headless mode denies them.
 - Domain policy enforced on every navigation, and re-checked after each action so redirects can't slip past.
+- MCP server on stdio (`local-browser mcp`) with the tools `open`, `snapshot`, `click`, `type`, `scroll`, `back`, `screenshot`; the browser opens on the first call.
+- `local-browser snapshot <url>` CLI command, `--policy`, `--browser`, `--headless`, `LOCAL_BROWSER_HOME`.
+- README usage, Claude Code setup, example policy and measured snapshot sizes.

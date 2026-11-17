@@ -1,0 +1,6 @@
+{
+  "allowedDomains": ["wikipedia.org", "news.ycombinator.com"],
+  "blockedDomains": ["accounts.google.com"],
+  "confirm": ["submit", "password"],
+  "maxSnapshotChars": 12000
+}
