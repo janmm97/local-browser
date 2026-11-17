@@ -76,6 +76,15 @@ describe("submit approval", { timeout: 60_000 }, () => {
       expect(posts).toBe(1);
     }));
 
+  it("shows the human the button label and form target as written", () =>
+    withSession({}, async (s) => {
+      let shown = "";
+      (s as any).confirm = async (_kind: string, detail: string) => void (shown = detail);
+      await s.click(2);
+      expect(shown).toContain('"Outside"');
+      expect(shown).toContain(`sends the form to ${base}/post`);
+    }));
+
   it("refuses to click a button the page swapped while the prompt was open", () =>
     withSession({}, async (s) => {
       approve(s, () => (s as any).page.evaluate(() => (document.querySelector('[data-lb-ref="4"]')!.textContent = "Delete everything")));

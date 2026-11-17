@@ -260,7 +260,7 @@ function describe(el: Locator) {
     const formAction = b.form ? b.formAction || document.URL : "";
     return {
       submit: submit && !!b.form,
-      label: (b.innerText || b.value || b.alt || "").replace(/s+/g, " ").trim().slice(0, 80),
+      label: (b.innerText || b.value || b.alt || "").replace(/\s+/g, " ").trim().slice(0, 80),
       action: formAction.slice(0, 200),
     };
   });
