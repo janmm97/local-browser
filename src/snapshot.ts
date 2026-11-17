@@ -59,11 +59,18 @@ export function pageSnapshot(max: number): string {
     }
   }
 
-  // bot checks and CAPTCHAs are for a person: point the agent at ask_human instead of letting it try
+  // bot checks and CAPTCHAs are for a person: point the agent at ask_human instead of letting it try.
+  // Only a visible challenge counts: invisible reCAPTCHA badges and hidden widgets sit on many normal pages.
   const CHECK =
-    'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="challenges.cloudflare.com"],#px-captcha,#challenge-form,.cf-turnstile,.g-recaptcha,.h-captcha';
+    'iframe[src*="recaptcha"]:not([src*="size=invisible"]),iframe[src*="hcaptcha"],iframe[src*="challenges.cloudflare.com"],#px-captcha,#challenge-form,.cf-turnstile,.g-recaptcha,.h-captcha';
+  const shown = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    return r.width >= 40 && r.height >= 40 && el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+  };
+  // the wording only counts on a short page: a bot-check page is nearly empty, an article that mentions CAPTCHAs is not
   const bodyText = document.body?.innerText ?? "";
-  if (document.querySelector(CHECK) || /press (&|and) hold|verify (that )?you are (a )?human|are you a robot|not a robot/i.test(bodyText))
+  const worded = bodyText.length < 1500 && /press (&|and) hold|verify (that )?you are (a )?human|are you a robot|not a robot/i.test(bodyText);
+  if (worded || [...document.querySelectorAll(CHECK)].some(shown))
     lines.splice(2, 0, "note: this page shows a bot check or CAPTCHA. Don't try to solve it: call ask_human so the user can do it.");
 
   const out = lines.join("\n");

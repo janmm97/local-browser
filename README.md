@@ -72,7 +72,7 @@ local-browser does **not** solve or get around CAPTCHAs or bot checks. Those are
 2. You switch to the page's tab and do the check yourself (it's your real input, in the same browser session).
 3. You click **Done**. The agent gets a fresh snapshot and carries on with the same cookies.
 
-While you have the browser, form submits go through without approval prompts (yours, and any the page itself sends in that window); the domain policy still applies. Only click **Done** after the check, and **Give up** if the agent asks for something you did not expect. The agent waits up to 10 minutes. `ask_human` needs a visible window, so it's refused with `--headless`.
+While you have the browser, a form submit goes through without an approval prompt only within 3 seconds of your own real click or key press, so a page can't send forms on its own while you take your time (one it sends in those 3 seconds after your click still passes). The domain policy still applies. Only click **Done** after the check, and **Give up** if the agent asks for something you did not expect. The agent waits up to 10 minutes (some MCP clients time out tool calls sooner; if yours does, finish the check and ask the agent to take a snapshot). `ask_human` needs a visible window, so it's refused with `--headless`.
 
 ### Policy
 Copy [`local-browser.policy.example.json`](local-browser.policy.example.json) and pass it with `--policy`:

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chromium, type BrowserContext, type Locator, type Page, type Route } from "playwright-core";
 import { createLog } from "./log.js";
 import { checkUrl, type Policy } from "./policy.js";
@@ -31,6 +32,7 @@ for (const id of ["allow", "deny"])
   document.getElementById(id).addEventListener("click", (e) => { if (e.isTrusted) window.__lbDecide(id); });
 </script>`;
 
+const GESTURE_WINDOW_MS = 3_000;
 export const BUTTON_DELAY_MS = 1_000;
 
 /**
@@ -66,7 +68,9 @@ export class Session {
   // the form target the human approved, set only while that click/Enter runs; one POST to it may pass (see guard)
   private approvedTarget: string | null = null;
   private blockedSubmit = false;
-  // true while the human has the browser (ask_human): their own form submits go through, the domain policy still applies
+  // when the human last clicked or pressed a key in any page (real input only), see launch()
+  private lastGesture = 0;
+  // true while the human has the browser (ask_human): a form submit passes only right after a real human click or key press, the domain policy still applies
   private humanDriving = false;
   private log: ReturnType<typeof createLog>;
   /** Resolves when the browser context closes (the human closed the window, or close() ran). */
@@ -95,6 +99,15 @@ export class Session {
     });
     const page = context.pages()[0] ?? (await context.newPage());
     const session = new Session(context, page, opts);
+    // Real input only: the page reports isTrusted events through a binding it can't use without the token, which only
+    // this init script's closure holds (it keeps its own reference to the binding before any page script runs).
+    const token = randomUUID();
+    await context.exposeBinding("__lbGesture", (_src, t: string) => {
+      if (t === token) session.lastGesture = Date.now();
+    });
+    await context.addInitScript(
+      `(() => { const send = window.__lbGesture, t = ${JSON.stringify(token)}; for (const ev of ["pointerdown", "keydown"]) addEventListener(ev, (e) => { if (e.isTrusted) send(t); }, true); })();`,
+    );
     await context.route("**/*", (route) => session.guard(route));
     return session;
   }
@@ -104,12 +117,14 @@ export class Session {
    * the target the human just approved, once: that catches submits the click detection can't see
    * (page-JS form.submit(), a label that triggers a submit button, odd markup) and a page swapping the target.
    */
-  private guard(route: Route) {
+  private async guard(route: Route) {
     const req = route.request();
     if (req.isNavigationRequest()) {
       if (checkUrl(this.opts.policy, req.url())) return route.abort("blockedbyclient");
       const post = req.method() !== "GET" && req.method() !== "HEAD";
-      if (post && this.opts.policy.confirm.includes("submit") && !this.humanDriving) {
+      // during ask_human a POST passes only within a few seconds of a real human click or key press (isTrusted events,
+      // which page script can't fake), so a page can't POST on its own while the human takes their time.
+      if (post && this.opts.policy.confirm.includes("submit") && !(this.humanDriving && (await this.recentGesture()))) {
         if (this.approvedTarget === null || noHash(req.url()) !== noHash(this.approvedTarget)) {
           this.blockedSubmit = true;
           return route.abort("aborted"); // "aborted" keeps the current page instead of showing an error page
@@ -118,6 +133,18 @@ export class Session {
       }
     }
     return route.continue();
+  }
+
+  /**
+   * True if a real human click or key press reached a page in the last few seconds (see launch()). A short wait covers
+   * the binding message arriving just after the request does. Fails closed.
+   */
+  private async recentGesture() {
+    for (let i = 0; i < 8; i++) {
+      if (Date.now() - this.lastGesture < GESTURE_WINDOW_MS) return true;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return false;
   }
 
   /** Serialises actions, enforces the URL policy afterwards (redirects skip routing) and logs every step. */
@@ -249,14 +276,15 @@ export class Session {
   handoff(reason: string) {
     return this.run("ask_human", { reason }, async () => {
       if (this.opts.headless) throw new Denied("ask_human needs a visible browser window: run without --headless");
-      const where = `${await this.page.title()} (${this.page.url()})`;
+      const where = `${await this.page.title()} (${this.page.url()})`.slice(0, 300);
       this.approving = true;
       this.humanDriving = true;
+      this.lastGesture = 0;
       try {
         const done = await askHuman(
           this.context,
           "An AI agent needs you to do a step yourself",
-          `${reason}\n\nOn: ${where}\n\nSwitch to that tab, do it there, then come back to this tab and click Done.`,
+          `${reason}\n\nOn: ${where}\n\n(Written by the AI agent. A page can steer it, so check it makes sense.)\nSwitch to that tab, do it there, then come back to this tab and click Done. Click Give up if this isn't what you expected.`,
           this.opts.handoffTimeoutMs ?? 600_000,
           "Done",
           "Give up",

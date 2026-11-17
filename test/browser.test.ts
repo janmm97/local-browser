@@ -13,7 +13,9 @@ const PAGES: Record<string, string> = {
     <form action="/next"><label for="q">Search</label><input id="q" name="q" value="cats">
       <input type="password" value="hunter2" aria-label="Password"><button>Go</button></form>`,
   "/next": `<title>Next</title><p>Second page</p>`,
-  "/check": `<title>Access denied</title><div id="px-captcha"></div><p>Press &amp; Hold to confirm you are a human</p>`,
+  "/badge": `<title>Shop</title><iframe src="/recaptcha/api2/anchor?size=invisible" width="256" height="60"></iframe><p>Hello</p><div class="g-recaptcha" style="display:none"></div>`,
+  "/article": `<title>Blog</title><p>${"Why CAPTCHAs fail. ".repeat(100)}Some say press and hold to prove you are not a robot.</p>`,
+  "/check": `<title>Access denied</title><div id="px-captcha" style="height:80px"></div><p>Press &amp; Hold to confirm you are a human</p>`,
 };
 
 let server: Server;
@@ -69,6 +71,10 @@ describe("Session", { timeout: 60_000 }, () => {
 
   it("flags bot checks so the agent hands them to the human", () =>
     withSession({}, async (s, log) => {
+      for (const page of ["badge", "article"]) {
+        await s.open(`${base}/${page}`); // an invisible reCAPTCHA badge and a long article about CAPTCHAs are not bot checks
+        expect(await s.snapshot()).not.toContain("bot check");
+      }
       await s.open(`${base}/check`);
       expect((await s.snapshot()).split("\n")[2]).toMatch(/bot check or CAPTCHA.*call ask_human/);
       await expect(s.handoff("Do the press-and-hold")).rejects.toThrow(/visible browser window/);
