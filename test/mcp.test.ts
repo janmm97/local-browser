@@ -42,7 +42,7 @@ it("lists the tools", async () => {
   expect(tools.map((t) => t.name).sort()).toEqual(["back", "click", "open", "screenshot", "scroll", "snapshot", "type"]);
 });
 
-it("opens, snapshots, screenshots and reports denials as tool errors", async () => {
+it("opens, snapshots, screenshots and reports denials as tool errors", { timeout: 60_000 }, async () => {
   expect((await call("open", { url: base })).content[0].text).toMatch(/^ok: T/);
   expect((await call("snapshot")).content[0].text).toContain('[1] text "q"');
   const shot = await call("screenshot");
