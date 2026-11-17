@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Session } from "./browser.js";
 import { serveStdio } from "./mcp.js";
@@ -21,42 +21,47 @@ Options:
 Profile and action log live in $LOCAL_BROWSER_HOME (default ~/.local-browser).
 `;
 
-const { values, positionals } = parseArgs({
-  allowPositionals: true,
-  options: {
-    policy: { type: "string" },
-    browser: { type: "string", default: "chrome" },
-    headless: { type: "boolean", default: false },
-    help: { type: "boolean", short: "h" },
-  },
-});
+async function main() {
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: {
+      policy: { type: "string" },
+      browser: { type: "string", default: "chrome" },
+      headless: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h" },
+    },
+  });
 
-const home = process.env.LOCAL_BROWSER_HOME || join(homedir(), ".local-browser");
-const opts = () => ({
-  policy: loadPolicy(values.policy),
-  profileDir: join(home, "profile"),
-  logFile: join(home, "actions.jsonl"),
-  channel: values.browser,
-  headless: values.headless,
-});
+  const home = resolve(process.env.LOCAL_BROWSER_HOME || join(homedir(), ".local-browser"));
+  const opts = () => ({
+    policy: loadPolicy(values.policy),
+    profileDir: join(home, "profile"),
+    logFile: join(home, "actions.jsonl"),
+    channel: values.browser,
+    headless: values.headless,
+  });
 
-const [cmd, url] = positionals;
-if (values.help || !cmd) {
-  console.log(USAGE);
-} else if (cmd === "mcp") {
-  await serveStdio(opts());
-} else if (cmd === "snapshot" && url) {
-  const s = await Session.launch({ ...opts(), headless: true });
-  try {
-    await s.open(url);
-    console.log(await s.snapshot());
-  } catch (e) {
-    console.error(`local-browser: ${(e as Error).message}`);
-    process.exitCode = 1;
-  } finally {
-    await s.close();
+  const [cmd, url] = positionals;
+  if (values.help || !cmd) {
+    console.log(USAGE);
+  } else if (cmd === "mcp") {
+    await serveStdio(opts());
+  } else if (cmd === "snapshot" && url) {
+    const s = await Session.launch({ ...opts(), headless: true });
+    try {
+      await s.open(url);
+      console.log(await s.snapshot());
+    } finally {
+      await s.close();
+    }
+  } else {
+    console.error(USAGE);
+    process.exitCode = 2;
   }
-} else {
-  console.error(USAGE);
-  process.exitCode = 2;
 }
+
+// bad flags, a broken policy file or a missing browser should read as one line, not a stack trace
+main().catch((e) => {
+  console.error(`local-browser: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
+  process.exitCode = 1;
+});

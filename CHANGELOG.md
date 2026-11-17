@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Policy domains are normalised (case, punycode, trailing dot, `*.`) and a non-domain entry such as `https://evil.com` is now an error instead of silently never matching.
+- Form POST navigations are blocked unless a human approved the click or Enter that caused them (closes page-JS `form.submit()`); `<button form=…>` counts as a submit; the approval prompt shows the real form target; a button swapped while the prompt is open is refused; service workers are blocked so every request is checked.
+- Log folder is created `0700` and the log `0600` (not enforced on Windows).
+- Tool descriptions mark page text as untrusted.
+
+### Fixed
+- MCP: a failed browser launch or a closed window no longer breaks every later call; errors are one short line with a hint when Chrome/Edge is missing; the server reports the package version.
+- CLI: bad options, a broken policy file or a missing browser print one `local-browser: …` line and exit non-zero; `LOCAL_BROWSER_HOME` is made absolute.
+- CI: `npm audit` for runtime dependencies, concurrency group; Dependabot for npm and GitHub Actions.
+
 ### Added
 - Project scaffold: MIT licence, docs, issue/PR templates, CI on Linux and Windows.
 - Policy file (`allowedDomains`, `blockedDomains`, `confirm`, `maxSnapshotChars`) with strict validation; only `http(s)` and `about:blank` URLs are allowed.
