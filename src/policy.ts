@@ -54,7 +54,7 @@ export function checkUrl(policy: Policy, url: string): string | null {
   } catch {
     return `invalid URL: ${url}`;
   }
-  if (u.href === "about:blank") return null;
+  if (u.protocol === "about:" && u.pathname === "blank") return null;
   // file:, chrome:, javascript:, data: … would let a page or agent reach local files or browser internals.
   if (!ALLOWED_SCHEMES.has(u.protocol)) return `scheme ${u.protocol} is not allowed`;
   const host = u.hostname.toLowerCase().replace(/\.$/, ""); // "evil.com." must match "evil.com"
