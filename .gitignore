@@ -1,0 +1,20 @@
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+
+# local runtime data (profile, action log, screenshots)
+.local-browser/
+*.png
+*.jpg
+*.webm
+*.mp4
