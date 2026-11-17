@@ -95,9 +95,10 @@ With the default `maxSnapshotChars` (12,000) the Wikipedia snapshot is cut to ab
 - The domain policy applies to page navigations, not to images, scripts or other subresources a page loads.
 - Iframes aren't included in snapshots.
 - No downloads (they're turned off), uploads or tab-switching tool.
-- "Submit" approval: a click on a submit button (including `<button form=…>`) or Enter via `type` waits for a human, and any form **POST** navigation without that approval is blocked, so page-JavaScript `form.submit()` can't send data. Not covered: `fetch`/XHR requests, and forms that submit with GET. Use `allowedDomains` for sites you don't trust.
-- Localhost and private network addresses (and the cloud metadata IP 169.254.169.254) are **not** blocked by default. Add them to `blockedDomains` if the agent shouldn't reach your own machine or network.
+- "Submit" approval: a click on a submit button (including `<button form=…>`) or Enter via `type` waits for a human. The approval lets one form **POST** through, only to the target shown in the prompt; every other POST navigation is blocked, so page-JavaScript `form.submit()` can't send data. Not covered: `fetch`/XHR requests, and forms that submit with GET. Use `allowedDomains` for sites you don't trust.
+- Localhost and private network addresses (and the cloud metadata IP 169.254.169.254) are **not** blocked by default. `blockedDomains` matches host names and exact addresses only (for example `localhost`, `127.0.0.1`, `[::1]`, `169.254.169.254`), not ranges like `10.0.0.0/8`; list the ones you need. Range blocking is planned for v0.2 ([#7](https://github.com/janmm97/local-browser/issues/7)).
 - Page text is untrusted: a page can hide instructions in invisible text that still appears in snapshots. The tool descriptions tell the model not to follow them, which is a hint, not a guarantee.
+- Password approval only fires for fields that are `type="password"` when the agent types; a page can use a plain text field for a password.
 - Approval needs a visible window; in `--headless` mode those steps are denied.
 - The log stores URLs, which can contain query text a site puts there (for example search forms).
 - `data-lb-ref` attributes are visible to page scripts. They are labels, not a security boundary.
