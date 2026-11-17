@@ -11,7 +11,8 @@ const HOME = `<title>S</title>
 <form id="f" method="post" action="/post"><input name="q"><input type="hidden" name="action" value="/fake"></form>
 <button form="f">Outside</button>
 <div role="button" onclick="document.getElementById('f').submit()">Scripted</div>
-<form method="post" action="/post"><button>Inside</button></form>`;
+<form method="post" action="/post"><button>Inside</button></form>
+<form method="post" action="/newsletter"><button onclick="event.preventDefault();document.getElementById('f').submit()">Sneaky</button></form>`;
 
 let server: Server;
 let base: string;
@@ -40,7 +41,7 @@ async function withSession(policy: Partial<Policy>, fn: (s: Session) => Promise<
   });
   try {
     await s.open(base);
-    await s.snapshot(); // [1] input, [2] button form=f, [3] scripted div, [4] button inside form
+    await s.snapshot(); // [1] input, [2] button form=f, [3] scripted div, [4] button inside form, [5] sneaky button
     await fn(s);
   } finally {
     await s.close();
@@ -74,6 +75,15 @@ describe("submit approval", { timeout: 60_000 }, () => {
       await s.snapshot();
       await expect(s.click(3)).rejects.toThrow(/had not approved/); // approval doesn't linger
       expect(posts).toBe(1);
+    }));
+
+  it("blocks a POST to any target other than the one the human approved", () =>
+    withSession({}, async (s) => {
+      let shown = "";
+      (s as any).confirm = async (_kind: string, detail: string) => void (shown = detail);
+      await expect(s.click(5)).rejects.toThrow(/had not approved/);
+      expect(shown).toContain(`sends the form to ${base}/newsletter`);
+      expect(posts).toBe(0);
     }));
 
   it("shows the human the button label and form target as written", () =>

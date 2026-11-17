@@ -21,13 +21,15 @@ const APPROVAL_HTML = (action: string) => `<!doctype html>
 <body style="font:16px system-ui;max-width:640px;margin:48px auto">
 <h1>An AI agent wants to: ${action}</h1>
 <pre id="d" style="white-space:pre-wrap;background:#f3f3f3;padding:12px"></pre>
-<button id="allow" style="font-size:18px">Allow</button>
-<button id="deny" style="font-size:18px">Deny</button>
+<button id="allow" style="font-size:18px" disabled>Allow</button>
+<button id="deny" style="font-size:18px" disabled>Deny</button>
 <script>
 // only real human clicks count (synthetic events are untrusted)
 for (const id of ["allow", "deny"])
   document.getElementById(id).addEventListener("click", (e) => { if (e.isTrusted) window.__lbDecide(id); });
 </script>`;
+
+export const BUTTON_DELAY_MS = 1_000;
 
 /** Opens a local Allow/Deny tab and resolves true only on a real click on Allow. Timeout or closing the tab means no. */
 export async function askHuman(context: BrowserContext, action: string, detail: string, timeoutMs: number) {
@@ -43,6 +45,9 @@ export async function askHuman(context: BrowserContext, action: string, detail: 
     await prompt.setContent(APPROVAL_HTML(action));
     await prompt.locator("#d").evaluate((el, d) => { el.textContent = d; }, detail);
     await prompt.bringToFront();
+    // the buttons start disabled, so a click meant for the page can't land on Allow (like Chrome's permission prompts)
+    await new Promise((r) => setTimeout(r, BUTTON_DELAY_MS));
+    await prompt.evaluate(() => document.querySelectorAll("button").forEach((b) => (b.disabled = false))).catch(() => {});
     return (await decision) === "allow";
   } finally {
     clearTimeout(timer);
@@ -53,8 +58,8 @@ export async function askHuman(context: BrowserContext, action: string, detail: 
 export class Session {
   private queue: Promise<unknown> = Promise.resolve();
   private approving = false;
-  // true only while a click/Enter the human approved is running (see guard)
-  private submitApproved = false;
+  // the form target the human approved, set only while that click/Enter runs; one POST to it may pass (see guard)
+  private approvedTarget: string | null = null;
   private blockedSubmit = false;
   private log: ReturnType<typeof createLog>;
   /** Resolves when the browser context closes (the human closed the window, or close() ran). */
@@ -88,18 +93,21 @@ export class Session {
   }
 
   /**
-   * Every request passes here. Navigations to forbidden URLs are refused. Form POSTs are refused unless a click
-   * or Enter the human approved caused them: that catches submits the click detection can't see
-   * (page-JS form.submit(), a label that triggers a submit button, odd markup).
+   * Every request passes here. Navigations to forbidden URLs are refused. Form POSTs are refused unless they go to
+   * the target the human just approved, once: that catches submits the click detection can't see
+   * (page-JS form.submit(), a label that triggers a submit button, odd markup) and a page swapping the target.
    */
   private guard(route: Route) {
     const req = route.request();
     if (req.isNavigationRequest()) {
       if (checkUrl(this.opts.policy, req.url())) return route.abort("blockedbyclient");
       const post = req.method() !== "GET" && req.method() !== "HEAD";
-      if (post && this.opts.policy.confirm.includes("submit") && !this.submitApproved) {
-        this.blockedSubmit = true;
-        return route.abort("aborted"); // "aborted" keeps the current page instead of showing an error page
+      if (post && this.opts.policy.confirm.includes("submit")) {
+        if (this.approvedTarget === null || noHash(req.url()) !== noHash(this.approvedTarget)) {
+          this.blockedSubmit = true;
+          return route.abort("aborted"); // "aborted" keeps the current page instead of showing an error page
+        }
+        this.approvedTarget = null; // one approval, one POST
       }
     }
     return route.continue();
@@ -150,13 +158,13 @@ export class Session {
     }
   }
 
-  /** Runs a step the human has approved (if `approved`), letting its form POST through guard(). */
-  private async approved<T>(approved: boolean, fn: () => Promise<T>) {
-    this.submitApproved = approved;
+  /** Runs a step, letting one form POST to `target` (the URL the human approved) through guard(). */
+  private async approved<T>(target: string | null, fn: () => Promise<T>) {
+    this.approvedTarget = target || null;
     try {
       return await fn();
     } finally {
-      this.submitApproved = false;
+      this.approvedTarget = null;
     }
   }
 
@@ -188,12 +196,12 @@ export class Session {
       const el = await this.el(ref);
       const before = await describe(el);
       if (before.submit) {
-        await this.confirm("submit", `click [${ref}] ${JSON.stringify(before.label)}, sends the form to ${before.action}, on ${this.page.url()}`);
+        await this.confirm("submit", `click [${ref}] ${JSON.stringify(before.label)}, sends the form to ${before.action.slice(0, 200)}, on ${this.page.url()}`);
         // the page had up to two minutes to swap the button for another one
         if (JSON.stringify(await describe(el)) !== JSON.stringify(before))
           throw new Denied("the page changed the button while waiting for approval: take a new snapshot");
       }
-      return this.approved(before.submit, async () => {
+      return this.approved(before.submit ? before.action : null, async () => {
         await el.click({ timeout: 10_000 });
         await this.page.waitForLoadState("domcontentloaded").catch(() => {});
         return this.summary();
@@ -210,11 +218,10 @@ export class Session {
         const el = await this.el(ref);
         if (await el.evaluate((e) => (e as HTMLInputElement).type === "password"))
           await this.confirm("password", `type into password field [${ref}] on ${this.page.url()}`);
-        if (submit) {
-          const { action } = await describe(el);
-          await this.confirm("submit", `type into [${ref}] and press Enter, sends the form to ${action || "(no form)"}, on ${this.page.url()}`);
-        }
-        return this.approved(submit, async () => {
+        const action = submit ? (await describe(el)).action : "";
+        if (submit)
+          await this.confirm("submit", `type into [${ref}] and press Enter, sends the form to ${action.slice(0, 200) || "(no form)"}, on ${this.page.url()}`);
+        return this.approved(action, async () => {
           await el.fill(text, { timeout: 10_000 });
           if (submit) {
             await el.press("Enter");
@@ -269,10 +276,12 @@ function describe(el: Locator) {
     return {
       submit: submit && !!b.form,
       label: (b.innerText || b.value || b.alt || "").replace(/\s+/g, " ").trim().slice(0, 80),
-      action: formAction.slice(0, 200),
+      action: formAction, // full URL: guard() matches the POST against it
     };
   });
 }
+
+const noHash = (u: string) => u.split("#")[0];
 
 /** A step the policy or the human refused (as opposed to a technical error). */
 export class Denied extends Error {}

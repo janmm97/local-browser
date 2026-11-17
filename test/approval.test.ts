@@ -29,12 +29,22 @@ describe("askHuman", { timeout: 30_000 }, () => {
     expect(shown).toBe(EVIL);
   });
 
+  it("keeps Allow disabled for a moment, so a stray click can't approve", async () => {
+    let disabledAtFirst = false;
+    const ok = await ask("x", async (p) => {
+      disabledAtFirst = await p.locator("#allow").isDisabled();
+      await p.locator("#allow").click({ force: true }); // a click that lands the instant the prompt appears
+    });
+    expect(disabledAtFirst).toBe(true);
+    expect(ok).toBe(false);
+  });
+
   it("ignores synthetic clicks and the old page variable", async () => {
     const ok = await ask("x", (p) =>
-      p.evaluate(() => {
+      p.waitForSelector("#allow:enabled").then(() => p.evaluate(() => {
         document.getElementById("allow")!.click();
         (window as any).__lbDecision = "allow";
-      }),
+      })),
     );
     expect(ok).toBe(false);
   });
