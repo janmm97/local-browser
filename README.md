@@ -9,7 +9,7 @@ Agents waste tokens on raw HTML, and giving them your everyday browser profile i
 ## Requirements
 - Node.js 22+
 - Google Chrome or Microsoft Edge
-- Windows, macOS or Linux (no GPU needed)
+- Windows or Linux, tested in CI. macOS should work but isn't tested in CI yet. No GPU needed.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Please follow our [Code of Conduct](CODE_OF_CONDUCT.md).
