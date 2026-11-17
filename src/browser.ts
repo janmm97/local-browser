@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chromium, type BrowserContext, type Locator, type Page, type Route } from "playwright-core";
 import { createLog } from "./log.js";
 import { checkUrl, type Policy } from "./policy.js";
-import { pageSnapshot } from "./snapshot.js";
+import { botCheck, pageSnapshot } from "./snapshot.js";
 
 export type SessionOptions = {
   policy: Policy;
@@ -16,6 +16,8 @@ export type SessionOptions = {
   approvalTimeoutMs?: number;
   /** How long ask_human waits for the human to finish and click Done (default 10 minutes). */
   handoffTimeoutMs?: number;
+  /** Pause on a bot check or CAPTCHA until the human completes it (default: on when headed). */
+  waitForChecks?: boolean;
 };
 
 // No page-controlled text ever goes into this markup: the detail is set as textContent after load.
@@ -33,6 +35,20 @@ for (const id of ["allow", "deny"])
 </script>`;
 
 const GESTURE_WINDOW_MS = 3_000;
+// steps after which the page may show a bot check
+const NAV_TOOLS = new Set(["open", "click", "type", "back"]);
+const CHECK_NOTE = "note: this page shows a bot check or CAPTCHA. Don't try to solve it: call ask_human so the user can do it.";
+
+// Shown on the check page while local-browser waits; fixed text only, no page input.
+function showNotice(on: boolean) {
+  document.getElementById("__lb_notice")?.remove();
+  if (!on) return;
+  const d = document.createElement("div");
+  d.id = "__lb_notice";
+  d.textContent = "local-browser: an AI agent is waiting for you to complete this check. It carries on by itself once the check is gone.";
+  d.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;pointer-events:none;background:#ffd400;color:#000;font:16px system-ui;padding:10px;text-align:center";
+  document.documentElement.appendChild(d);
+}
 export const BUTTON_DELAY_MS = 1_000;
 
 /**
@@ -72,6 +88,8 @@ export class Session {
   private lastGesture = 0;
   // true while the human has the browser (ask_human): a form submit passes only right after a real human click or key press, the domain policy still applies
   private humanDriving = false;
+  // the last tab opened while the human had the browser (ask_human): the agent follows it after Done
+  private openedByHuman: Page | null = null;
   private log: ReturnType<typeof createLog>;
   /** Resolves when the browser context closes (the human closed the window, or close() ran). */
   readonly closed: Promise<void>;
@@ -86,6 +104,7 @@ export class Session {
     // follow tabs the page opens (but never the approval tab)
     context.on("page", (p) => {
       if (!this.approving) this.page = p;
+      else if (this.humanDriving) this.openedByHuman = p; // the prompt tab is closed by the time this is read (handoff)
     });
   }
 
@@ -157,8 +176,9 @@ export class Session {
       if (this.page.isClosed()) this.page = this.context.pages().find((p) => !p.isClosed()) ?? (await this.context.newPage());
       this.blockedSubmit = false;
       try {
-        const result = await fn();
+        let result = await fn();
         if (this.blockedSubmit) throw new Denied("a form submit the human had not approved was blocked");
+        if (NAV_TOOLS.has(tool) && (await this.waitOutCheck())) result = (await this.summary()) as Awaited<T>;
         const blocked = checkUrl(this.opts.policy, this.page.url());
         if (blocked) {
           await this.page.goto("about:blank").catch(() => {});
@@ -225,7 +245,45 @@ export class Session {
   }
 
   snapshot() {
-    return this.run("snapshot", {}, () => this.page.evaluate(pageSnapshot, this.opts.policy.maxSnapshotChars));
+    return this.run("snapshot", {}, () => this.snap());
+  }
+
+  private async snap() {
+    const lines = (await this.page.evaluate(pageSnapshot, this.opts.policy.maxSnapshotChars)).split("\n");
+    if (await this.page.evaluate(botCheck)) lines.splice(2, 0, CHECK_NOTE);
+    return lines.join("\n");
+  }
+
+  /**
+   * If the page shows a bot check or CAPTCHA, hands it to the human: brings the tab to the front with a notice and
+   * waits until the check is gone (the human completed it), then the step returns as usual. Never solves it itself.
+   * Returns true if it waited.
+   */
+  private async waitOutCheck() {
+    if (!(this.opts.waitForChecks ?? !this.opts.headless)) return false;
+    if (!(await this.page.evaluate(botCheck).catch(() => false))) return false;
+    const page = this.page;
+    this.log({ tool: "wait_for_human", args: {}, outcome: "ok", detail: "bot check or CAPTCHA shown, waiting for the human", url: page.url() });
+    this.humanDriving = true;
+    this.lastGesture = 0;
+    try {
+      await page.bringToFront().catch(() => {});
+      const end = Date.now() + (this.opts.handoffTimeoutMs ?? 600_000);
+      // two clear polls in a row: a challenge often reloads itself between steps
+      for (let clear = 0; clear < 2; ) {
+        if (page.isClosed()) throw new Denied("the tab with the bot check was closed");
+        if (Date.now() > end) throw new Denied("the bot check or CAPTCHA was not completed in time. Do not retry unless the user asks.");
+        await page.evaluate(showNotice, true).catch(() => {}); // again after each reload
+        await new Promise((r) => setTimeout(r, 1_000));
+        // an error means the page is navigating: count it as still checking
+        clear = (await page.evaluate(botCheck).catch(() => true)) ? 0 : clear + 1;
+      }
+    } finally {
+      this.humanDriving = false;
+      await page.evaluate(showNotice, false).catch(() => {});
+    }
+    await page.waitForLoadState("domcontentloaded").catch(() => {});
+    return true;
   }
 
   click(ref: number) {
@@ -283,6 +341,7 @@ export class Session {
       this.approving = true;
       this.humanDriving = true;
       this.lastGesture = 0;
+      this.openedByHuman = null;
       try {
         const done = await askHuman(
           this.context,
@@ -296,10 +355,13 @@ export class Session {
       } finally {
         this.approving = false;
         this.humanDriving = false;
+        const opened = this.openedByHuman as Page | null; // set by the "page" listener meanwhile
+        if (opened && !opened.isClosed()) this.page = opened;
+        this.openedByHuman = null;
         await this.page.bringToFront().catch(() => {});
       }
       await this.page.waitForLoadState("domcontentloaded").catch(() => {});
-      return this.page.evaluate(pageSnapshot, this.opts.policy.maxSnapshotChars);
+      return this.snap();
     });
   }
 

@@ -59,20 +59,45 @@ export function pageSnapshot(max: number): string {
     }
   }
 
-  // bot checks and CAPTCHAs are for a person: point the agent at ask_human instead of letting it try.
+  const out = lines.join("\n");
+  return out.length > max ? `${out.slice(0, max)}\n… (snapshot cut at ${max} chars; scroll or raise maxSnapshotChars)` : out;
+}
+
+/**
+ * Runs inside the page (self-contained). True when the page shows a bot check or CAPTCHA a person has to do:
+ * reCAPTCHA, hCaptcha, Cloudflare (Turnstile and "Just a moment"), HUMAN/PerimeterX press-and-hold, DataDome,
+ * Arkose/FunCaptcha, AWS WAF, GeeTest, Friendly Captcha, Google's "unusual traffic" page.
+ */
+export function botCheck(): boolean {
   // Only a visible challenge counts: invisible reCAPTCHA badges and hidden widgets sit on many normal pages.
-  const CHECK =
-    'iframe[src*="recaptcha"]:not([src*="size=invisible"]),iframe[src*="hcaptcha"],iframe[src*="challenges.cloudflare.com"],#px-captcha,#challenge-form,.cf-turnstile,.g-recaptcha,.h-captcha';
+  const CHECK = [
+    'iframe[src*="recaptcha"]:not([src*="size=invisible"])',
+    'iframe[src*="hcaptcha"]',
+    'iframe[src*="challenges.cloudflare.com"]',
+    'iframe[src*="captcha-delivery.com"]',
+    'iframe[src*="arkoselabs"]',
+    'iframe[src*="funcaptcha"]',
+    'iframe[src*="awswaf"]',
+    "awswaf-captcha",
+    "#px-captcha",
+    "#challenge-form",
+    "#challenge-running",
+    ".cf-turnstile",
+    ".g-recaptcha",
+    ".h-captcha",
+    ".geetest_box",
+    ".geetest_panel",
+    ".frc-captcha",
+  ].join(",");
   const shown = (el: Element) => {
     const r = el.getBoundingClientRect();
     return r.width >= 40 && r.height >= 40 && el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
   };
   // the wording only counts on a short page: a bot-check page is nearly empty, an article that mentions CAPTCHAs is not
   const bodyText = document.body?.innerText ?? "";
-  const worded = bodyText.length < 1500 && /press (&|and) hold|verify (that )?you are (a )?human|are you a robot|not a robot/i.test(bodyText);
-  if (worded || [...document.querySelectorAll(CHECK)].some(shown))
-    lines.splice(2, 0, "note: this page shows a bot check or CAPTCHA. Don't try to solve it: call ask_human so the user can do it.");
-
-  const out = lines.join("\n");
-  return out.length > max ? `${out.slice(0, max)}\n… (snapshot cut at ${max} chars; scroll or raise maxSnapshotChars)` : out;
+  const worded =
+    bodyText.length < 1500 &&
+    (/^just a moment/i.test(document.title) ||
+      /press (&|and) hold|verify(ing)? (that )?you are (a )?human|are you a robot|not a robot|checking your browser|unusual traffic|slide to (verify|complete)/i.test(bodyText));
+  return worded || [...document.querySelectorAll(CHECK)].some(shown);
 }

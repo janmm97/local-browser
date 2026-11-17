@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Denied, Session } from "../src/browser.js";
+import { Denied, Session, type SessionOptions } from "../src/browser.js";
 import { loadPolicy, type Policy } from "../src/policy.js";
 
 const PAGES: Record<string, string> = {
@@ -15,6 +15,11 @@ const PAGES: Record<string, string> = {
   "/next": `<title>Next</title><p>Second page</p>`,
   "/badge": `<title>Shop</title><iframe src="/recaptcha/api2/anchor?size=invisible" width="256" height="60"></iframe><p>Hello</p><div class="g-recaptcha" style="display:none"></div>`,
   "/article": `<title>Blog</title><p>${"Why CAPTCHAs fail. ".repeat(100)}Some say press and hold to prove you are not a robot.</p>`,
+  "/moment": `<title>Just a moment...</title><p>Checking</p>`,
+  "/datadome": `<title>example.com</title><iframe src="https://geo.captcha-delivery.com/captcha/" width="400" height="400"></iframe>`,
+  // the "human" completes the check after a second and a half
+  "/solved": `<title>Access denied</title><div id="px-captcha" style="height:80px"></div><p>Press &amp; Hold</p>
+    <script>setTimeout(() => { document.title = "Flights"; document.body.innerHTML = "<p>Results</p>"; }, 1500)</script>`,
   "/check": `<title>Access denied</title><div id="px-captcha" style="height:80px"></div><p>Press &amp; Hold to confirm you are a human</p>`,
 };
 
@@ -34,7 +39,7 @@ beforeAll(async () => {
 afterAll(() => server.close());
 const port = () => (server.address() as { port: number }).port;
 
-async function withSession(policy: Partial<Policy>, fn: (s: Session, log: () => any[]) => Promise<void>) {
+async function withSession(policy: Partial<Policy>, fn: (s: Session, log: () => any[]) => Promise<void>, extra: Partial<SessionOptions> = {}) {
   const name = Math.random().toString(36).slice(2);
   const logFile = join(dir, `${name}.jsonl`);
   const s = await Session.launch({
@@ -43,6 +48,7 @@ async function withSession(policy: Partial<Policy>, fn: (s: Session, log: () => 
     logFile,
     channel: process.env.LOCAL_BROWSER_CHANNEL ?? "chrome",
     headless: true,
+    ...extra,
   });
   const log = () => readFileSync(logFile, "utf8").trim().split("\n").map((l: string) => JSON.parse(l));
   try {
@@ -80,6 +86,27 @@ describe("Session", { timeout: 60_000 }, () => {
       await expect(s.handoff("Do the press-and-hold")).rejects.toThrow(/visible browser window/);
       expect(log().at(-1)).toMatchObject({ tool: "ask_human", outcome: "denied" });
     }));
+
+  it("flags more vendors' checks", () =>
+    withSession({}, async (s) => {
+      for (const page of ["moment", "datadome"]) {
+        await s.open(`${base}/${page}`);
+        expect(await s.snapshot()).toContain("bot check or CAPTCHA");
+      }
+    }));
+
+  it("waits on a bot check until the human completes it, then carries on", () =>
+    withSession(
+      {},
+      async (s, log) => {
+        expect(await s.open(`${base}/solved`)).toMatch(/^ok: Flights/);
+        expect(log().map((l) => l.tool)).toEqual(["wait_for_human", "open"]);
+        expect(await s.snapshot()).not.toContain("bot check");
+        await expect(s.open(`${base}/check`)).rejects.toThrow(/not completed in time/);
+        expect(log().at(-1)).toMatchObject({ tool: "open", outcome: "denied" });
+      },
+      { waitForChecks: true, handoffTimeoutMs: 4_000 },
+    ));
 
   it("clicks and types by ref", () =>
     withSession({ confirm: [] }, async (s, log) => {
