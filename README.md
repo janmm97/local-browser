@@ -93,6 +93,7 @@ With the default `maxSnapshotChars` (12,000) the Wikipedia snapshot is cut to ab
 
 ## Known limits (v0.1)
 - The domain policy applies to page navigations, not to images, scripts or other subresources a page loads.
+- Redirects aren't checked while they happen: a redirected request (including a 307/308 re-POST of an approved form) is still sent; the agent is then taken off a blocked page.
 - Iframes aren't included in snapshots.
 - No downloads (they're turned off), uploads or tab-switching tool.
 - "Submit" approval: a click on a submit button (including `<button form=…>`) or Enter via `type` waits for a human. The approval lets one form **POST** through, only to the target shown in the prompt; every other POST navigation is blocked, so page-JavaScript `form.submit()` can't send data. Not covered: `fetch`/XHR requests, and forms that submit with GET. Use `allowedDomains` for sites you don't trust.
