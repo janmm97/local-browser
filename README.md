@@ -95,10 +95,11 @@ With the default `maxSnapshotChars` (12,000) the Wikipedia snapshot is cut to ab
 - The domain policy applies to page navigations, not to images, scripts or other subresources a page loads.
 - Iframes aren't included in snapshots.
 - No downloads (they're turned off), uploads or tab-switching tool.
+- "Submit" approval covers submit buttons and pressing Enter via `type`. Buttons that submit through page JavaScript, `<button form=…>` outside its form, or odd `type` values aren't caught. Use `allowedDomains` for sites you don't trust.
 - Approval needs a visible window; in `--headless` mode those steps are denied.
 - The log stores URLs, which can contain query text a site puts there (for example search forms).
 - `data-lb-ref` attributes are visible to page scripts. They are labels, not a security boundary.
-- The headed approval check is manual (`npm run build && node test/approval.manual.mjs`); CI runs the headless tests.
+- CI tests the approval prompt headless (including a hostile button label); the full headed flow is a manual check (`npm run build && node test/approval.manual.mjs`).
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Please follow our [Code of Conduct](CODE_OF_CONDUCT.md).
