@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chromium, type BrowserContext, type Locator, type Page, type Route } from "playwright-core";
 import { createLog } from "./log.js";
 import { checkUrl, type Policy } from "./policy.js";
@@ -13,26 +14,32 @@ export type SessionOptions = {
   headless?: boolean;
   /** How long a human has to answer an approval prompt. */
   approvalTimeoutMs?: number;
+  /** How long ask_human waits for the human to finish and click Done (default 10 minutes). */
+  handoffTimeoutMs?: number;
 };
 
 // No page-controlled text ever goes into this markup: the detail is set as textContent after load.
-const APPROVAL_HTML = (action: string) => `<!doctype html>
+const APPROVAL_HTML = (action: string, yes: string, no: string) => `<!doctype html>
 <title>local-browser: approve?</title>
 <body style="font:16px system-ui;max-width:640px;margin:48px auto">
-<h1>An AI agent wants to: ${action}</h1>
+<h1>${action}</h1>
 <pre id="d" style="white-space:pre-wrap;background:#f3f3f3;padding:12px"></pre>
-<button id="allow" style="font-size:18px" disabled>Allow</button>
-<button id="deny" style="font-size:18px" disabled>Deny</button>
+<button id="allow" style="font-size:18px" disabled>${yes}</button>
+<button id="deny" style="font-size:18px" disabled>${no}</button>
 <script>
 // only real human clicks count (synthetic events are untrusted)
 for (const id of ["allow", "deny"])
   document.getElementById(id).addEventListener("click", (e) => { if (e.isTrusted) window.__lbDecide(id); });
 </script>`;
 
+const GESTURE_WINDOW_MS = 3_000;
 export const BUTTON_DELAY_MS = 1_000;
 
-/** Opens a local Allow/Deny tab and resolves true only on a real click on Allow. Timeout or closing the tab means no. */
-export async function askHuman(context: BrowserContext, action: string, detail: string, timeoutMs: number) {
+/**
+ * Opens a local yes/no tab and resolves true only on a real click on the yes button. Timeout or closing the tab means no.
+ * `title` and the labels are fixed strings from this file; page-controlled text only ever goes in `detail`.
+ */
+export async function askHuman(context: BrowserContext, title: string, detail: string, timeoutMs: number, yes = "Allow", no = "Deny") {
   const prompt = await context.newPage();
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -42,7 +49,7 @@ export async function askHuman(context: BrowserContext, action: string, detail: 
     await prompt.exposeBinding("__lbDecide", (_src, id: string) => decide(id));
     prompt.once("close", () => decide("closed"));
     timer = setTimeout(() => decide("timeout"), timeoutMs);
-    await prompt.setContent(APPROVAL_HTML(action));
+    await prompt.setContent(APPROVAL_HTML(title, yes, no));
     await prompt.locator("#d").evaluate((el, d) => { el.textContent = d; }, detail);
     await prompt.bringToFront();
     // the buttons start disabled, so a click meant for the page can't land on Allow (like Chrome's permission prompts)
@@ -61,6 +68,10 @@ export class Session {
   // the form target the human approved, set only while that click/Enter runs; one POST to it may pass (see guard)
   private approvedTarget: string | null = null;
   private blockedSubmit = false;
+  // when the human last clicked or pressed a key in any page (real input only), see launch()
+  private lastGesture = 0;
+  // true while the human has the browser (ask_human): a form submit passes only right after a real human click or key press, the domain policy still applies
+  private humanDriving = false;
   private log: ReturnType<typeof createLog>;
   /** Resolves when the browser context closes (the human closed the window, or close() ran). */
   readonly closed: Promise<void>;
@@ -88,6 +99,17 @@ export class Session {
     });
     const page = context.pages()[0] ?? (await context.newPage());
     const session = new Session(context, page, opts);
+    // Real input only: the page reports isTrusted events through a binding it can't use without the token, which only
+    // this init script's closure holds (it keeps its own reference to the binding before any page script runs).
+    // Best effort, not a security boundary: Playwright's binding wrapper serialises the token with the page's global
+    // JSON.stringify, so a hostile page that patches it can read the token after one real click and fake gestures.
+    const token = randomUUID();
+    await context.exposeBinding("__lbGesture", (_src, t: string) => {
+      if (t === token) session.lastGesture = Date.now();
+    });
+    await context.addInitScript(
+      `(() => { const send = window.__lbGesture, t = ${JSON.stringify(token)}; for (const ev of ["pointerdown", "keydown"]) addEventListener(ev, (e) => { if (e.isTrusted) send(t); }, true); })();`,
+    );
     await context.route("**/*", (route) => session.guard(route));
     return session;
   }
@@ -97,12 +119,15 @@ export class Session {
    * the target the human just approved, once: that catches submits the click detection can't see
    * (page-JS form.submit(), a label that triggers a submit button, odd markup) and a page swapping the target.
    */
-  private guard(route: Route) {
+  private async guard(route: Route) {
     const req = route.request();
     if (req.isNavigationRequest()) {
       if (checkUrl(this.opts.policy, req.url())) return route.abort("blockedbyclient");
       const post = req.method() !== "GET" && req.method() !== "HEAD";
-      if (post && this.opts.policy.confirm.includes("submit")) {
+      // during ask_human a POST passes only within a few seconds of a real human click or key press (isTrusted events,
+      // reported by the init script in launch()), so an ordinary page doesn't POST on its own while the human takes their
+      // time. A hostile page can still get past this (see launch()), as it can with fetch(), which was never gated.
+      if (post && this.opts.policy.confirm.includes("submit") && !(this.humanDriving && (await this.recentGesture()))) {
         if (this.approvedTarget === null || noHash(req.url()) !== noHash(this.approvedTarget)) {
           this.blockedSubmit = true;
           return route.abort("aborted"); // "aborted" keeps the current page instead of showing an error page
@@ -111,6 +136,18 @@ export class Session {
       }
     }
     return route.continue();
+  }
+
+  /**
+   * True if a real human click or key press reached a page in the last few seconds (see launch()). A short wait covers
+   * the binding message arriving just after the request does. Fails closed.
+   */
+  private async recentGesture() {
+    for (let i = 0; i < 8; i++) {
+      if (Date.now() - this.lastGesture < GESTURE_WINDOW_MS) return true;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return false;
   }
 
   /** Serialises actions, enforces the URL policy afterwards (redirects skip routing) and logs every step. */
@@ -147,7 +184,7 @@ export class Session {
     try {
       const ok = await askHuman(
         this.context,
-        kind === "submit" ? "submit a form" : "type into a password field",
+        `An AI agent wants to: ${kind === "submit" ? "submit a form" : "type into a password field"}`,
         detail,
         this.opts.approvalTimeoutMs ?? 120_000,
       );
@@ -232,6 +269,38 @@ export class Session {
       },
       true,
     );
+  }
+
+  /**
+   * Hands the browser to the human for a step only a person should do (a CAPTCHA, a "press and hold" bot check,
+   * a 2FA login). The agent never solves those itself: it waits until the human clicks Done, then carries on in the
+   * same session. Returns a fresh snapshot.
+   */
+  handoff(reason: string) {
+    return this.run("ask_human", { reason }, async () => {
+      if (this.opts.headless) throw new Denied("ask_human needs a visible browser window: run without --headless");
+      const where = `${await this.page.title()} (${this.page.url()})`.slice(0, 300);
+      this.approving = true;
+      this.humanDriving = true;
+      this.lastGesture = 0;
+      try {
+        const done = await askHuman(
+          this.context,
+          "An AI agent needs you to do a step yourself",
+          `${reason}\n\nOn: ${where}\n\n(Written by the AI agent. A page can steer it, so check it makes sense.)\nSwitch to that tab, do it there, then come back to this tab and click Done. Click Give up if this isn't what you expected.`,
+          this.opts.handoffTimeoutMs ?? 600_000,
+          "Done",
+          "Give up",
+        );
+        if (!done) throw new Denied("the human gave up or didn't answer. Do not retry unless the user asks.");
+      } finally {
+        this.approving = false;
+        this.humanDriving = false;
+        await this.page.bringToFront().catch(() => {});
+      }
+      await this.page.waitForLoadState("domcontentloaded").catch(() => {});
+      return this.page.evaluate(pageSnapshot, this.opts.policy.maxSnapshotChars);
+    });
   }
 
   scroll(direction: "up" | "down") {

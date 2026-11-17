@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `ask_human(reason)` tool: hands the browser to the user for a CAPTCHA, a bot check or 2FA, waits for **Done**, then returns a fresh snapshot. Form submits go through during the handoff only within 3 seconds of the user's own real click or key press.
+- Snapshots add a note when the page shows a known bot check or CAPTCHA (visible reCAPTCHA, hCaptcha, Cloudflare Turnstile, HUMAN/PerimeterX "press and hold"; not invisible badges or long articles), telling the agent to call `ask_human` rather than try to solve it.
+
 ## [0.1.0] - 2026-11-18
 
 ### Security

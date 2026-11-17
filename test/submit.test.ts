@@ -53,6 +53,23 @@ const approve = (s: Session, during: () => Promise<unknown> = async () => {}) =>
   ((s as any).confirm = async () => void (await during()));
 
 describe("submit approval", { timeout: 60_000 }, () => {
+  it("during a handoff only a real human click lets a form POST through, not page script", () =>
+    withSession({}, async (s) => {
+      const page = (s as any).page;
+      (s as any).humanDriving = true; // what handoff() sets while the human has the browser
+      // page script: forged events and a guessed token don't count as a human
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event("pointerdown"));
+        (window as any).__lbGesture?.("guess");
+        (document.getElementById("f") as HTMLFormElement).submit();
+      });
+      await page.waitForTimeout(500);
+      expect(posts).toBe(0);
+      await page.getByRole("button", { name: "Inside" }).click(); // a real input event
+      await page.waitForLoadState("domcontentloaded");
+      expect(posts).toBe(1);
+    }));
+
   it("treats <button form=…> as a submit", () =>
     withSession({}, async (s) => {
       await expect(s.click(2)).rejects.toThrow(/needs a human yes/);

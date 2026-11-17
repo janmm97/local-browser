@@ -49,6 +49,16 @@ describe("askHuman", { timeout: 30_000 }, () => {
     expect(ok).toBe(false);
   });
 
+  it("uses the given labels (ask_human's Done / Give up)", async () => {
+    let labels = "";
+    context.once("page", (p) => p.waitForSelector("#allow:enabled").then(async () => {
+      labels = (await p.locator("button").allInnerTexts()).join("/");
+      await p.click("#allow");
+    }).catch(() => {}));
+    expect(await askHuman(context, "do a step yourself", "x", 10_000, "Done", "Give up")).toBe(true);
+    expect(labels).toBe("Done/Give up");
+  });
+
   it("allows on a real click on Allow, denies on Deny", async () => {
     expect(await ask("x", (p) => p.click("#allow"), 10_000)).toBe(true);
     expect(await ask("x", (p) => p.click("#deny"), 10_000)).toBe(false);

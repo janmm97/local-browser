@@ -54,6 +54,7 @@ The profile and action log live in `~/.local-browser/` (`profile/`, `actions.jso
 | `scroll(up\|down)` | Scroll the page |
 | `back()` | Go back |
 | `screenshot()` | JPEG of the viewport (costs far more tokens than a snapshot) |
+| `ask_human(reason)` | Hand the browser to you for a step only a person should do (CAPTCHA, "press and hold" bot check, 2FA), then carry on in the same session |
 
 A snapshot looks like:
 ```
@@ -63,6 +64,15 @@ url: https://news.ycombinator.com/
 [3] link "new"
 ...
 ```
+
+### Bot checks and CAPTCHAs
+local-browser does **not** solve or get around CAPTCHAs or bot checks. Those are a site's access control. When a snapshot shows one, it adds a line telling the agent to call `ask_human`. Then:
+
+1. A local tab opens with the agent's reason and **Done** / **Give up** buttons.
+2. You switch to the page's tab and do the check yourself (it's your real input, in the same browser session).
+3. You click **Done**. The agent gets a fresh snapshot and carries on with the same cookies.
+
+While you have the browser, a form submit goes through without an approval prompt only within 3 seconds of your own real click or key press, so an ordinary page doesn't send forms on its own while you take your time (one it sends in those 3 seconds after your click still passes). This is best effort, not a security boundary: a hostile page can get around it, as it can send data with `fetch()` anyway. The domain policy still applies. Only click **Done** after the check, and **Give up** if the agent asks for something you did not expect. The agent waits up to 10 minutes (some MCP clients time out tool calls sooner; if yours does, finish the check and ask the agent to take a snapshot). `ask_human` needs a visible window, so it's refused with `--headless`.
 
 ### Policy
 Copy [`local-browser.policy.example.json`](local-browser.policy.example.json) and pass it with `--policy`:
