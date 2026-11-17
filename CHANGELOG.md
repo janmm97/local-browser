@@ -8,3 +8,5 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 - Project scaffold: MIT licence, docs, issue/PR templates, CI on Linux, Windows and macOS.
+- Policy file (`allowedDomains`, `blockedDomains`, `confirm`, `maxSnapshotChars`) with strict validation; only `http(s)` and `about:blank` URLs are allowed.
+- JSONL action log with password redaction.
