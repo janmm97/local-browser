@@ -250,7 +250,7 @@ export class Session {
 
   private async snap() {
     const lines = (await this.page.evaluate(pageSnapshot, this.opts.policy.maxSnapshotChars)).split("\n");
-    if (await this.page.evaluate(botCheck)) lines.splice(2, 0, CHECK_NOTE);
+    if (await this.page.evaluate(botCheck, false)) lines.splice(2, 0, CHECK_NOTE);
     return lines.join("\n");
   }
 
@@ -261,7 +261,7 @@ export class Session {
    */
   private async waitOutCheck() {
     if (!(this.opts.waitForChecks ?? !this.opts.headless)) return false;
-    if (!(await this.page.evaluate(botCheck).catch(() => false))) return false;
+    if (!(await this.page.evaluate(botCheck, true).catch(() => false))) return false;
     const page = this.page;
     this.log({ tool: "wait_for_human", args: {}, outcome: "ok", detail: "bot check or CAPTCHA shown, waiting for the human", url: page.url() });
     this.humanDriving = true;
@@ -276,7 +276,7 @@ export class Session {
         await page.evaluate(showNotice, true).catch(() => {}); // again after each reload
         await new Promise((r) => setTimeout(r, 1_000));
         // an error means the page is navigating: count it as still checking
-        clear = (await page.evaluate(botCheck).catch(() => true)) ? 0 : clear + 1;
+        clear = (await page.evaluate(botCheck, true).catch(() => true)) ? 0 : clear + 1;
       }
     } finally {
       this.humanDriving = false;

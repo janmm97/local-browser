@@ -67,8 +67,10 @@ export function pageSnapshot(max: number): string {
  * Runs inside the page (self-contained). True when the page shows a bot check or CAPTCHA a person has to do:
  * reCAPTCHA, hCaptcha, Cloudflare (Turnstile and "Just a moment"), HUMAN/PerimeterX press-and-hold, DataDome,
  * Arkose/FunCaptcha, AWS WAF, GeeTest, Friendly Captcha, Google's "unusual traffic" page.
+ * `blocking`: only a check that stands in the way counts (a nearly empty page). A visible reCAPTCHA or Turnstile on a
+ * normal page, such as a contact or sign-up form, is not blocking, so waiting for it would stall the agent.
  */
-export function botCheck(): boolean {
+export function botCheck(blocking = false): boolean {
   // Only a visible challenge counts: invisible reCAPTCHA badges and hidden widgets sit on many normal pages.
   const CHECK = [
     'iframe[src*="recaptcha"]:not([src*="size=invisible"])',
@@ -98,6 +100,6 @@ export function botCheck(): boolean {
   const worded =
     bodyText.length < 1500 &&
     (/^just a moment/i.test(document.title) ||
-      /press (&|and) hold|verify(ing)? (that )?you are (a )?human|are you a robot|not a robot|checking your browser|unusual traffic|slide to (verify|complete)/i.test(bodyText));
-  return worded || [...document.querySelectorAll(CHECK)].some(shown);
+      /press (&|and) hold|verify(ing)? (that )?you are (a )?human|are you a robot|not a robot|checking your browser|unusual traffic from your|slide to (verify|complete)/i.test(bodyText));
+  return worded || ((!blocking || bodyText.length < 1500) && [...document.querySelectorAll(CHECK)].some(shown));
 }

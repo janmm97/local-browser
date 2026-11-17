@@ -20,6 +20,9 @@ const PAGES: Record<string, string> = {
   // the "human" completes the check after a second and a half
   "/solved": `<title>Access denied</title><div id="px-captcha" style="height:80px"></div><p>Press &amp; Hold</p>
     <script>setTimeout(() => { document.title = "Flights"; document.body.innerHTML = "<p>Results</p>"; }, 1500)</script>`,
+  // a normal page with a visible CAPTCHA widget (a contact form): flagged in a snapshot, but nothing to wait for
+  "/form": `<title>Contact</title><div class="g-recaptcha" style="height:80px;width:300px"></div><p>${"Write to us. ".repeat(150)}</p>`,
+  "/traffic": `<title>Busy</title><p>We are seeing unusual traffic right now. Please try again later.</p>`,
   "/check": `<title>Access denied</title><div id="px-captcha" style="height:80px"></div><p>Press &amp; Hold to confirm you are a human</p>`,
 };
 
@@ -104,6 +107,17 @@ describe("Session", { timeout: 60_000 }, () => {
         expect(await s.snapshot()).not.toContain("bot check");
         await expect(s.open(`${base}/check`)).rejects.toThrow(/not completed in time/);
         expect(log().at(-1)).toMatchObject({ tool: "open", outcome: "denied" });
+      },
+      { waitForChecks: true, handoffTimeoutMs: 4_000 },
+    ));
+
+  it("does not wait on a CAPTCHA widget in a normal page or on an unrelated 'unusual traffic' message", () =>
+    withSession(
+      {},
+      async (s, log) => {
+        expect(await s.open(`${base}/form`)).toMatch(/^ok: Contact/);
+        expect(await s.open(`${base}/traffic`)).toMatch(/^ok: Busy/);
+        expect(log().map((l) => l.tool)).toEqual(["open", "open"]);
       },
       { waitForChecks: true, handoffTimeoutMs: 4_000 },
     ));
