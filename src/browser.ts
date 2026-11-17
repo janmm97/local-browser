@@ -101,6 +101,8 @@ export class Session {
     const session = new Session(context, page, opts);
     // Real input only: the page reports isTrusted events through a binding it can't use without the token, which only
     // this init script's closure holds (it keeps its own reference to the binding before any page script runs).
+    // Best effort, not a security boundary: Playwright's binding wrapper serialises the token with the page's global
+    // JSON.stringify, so a hostile page that patches it can read the token after one real click and fake gestures.
     const token = randomUUID();
     await context.exposeBinding("__lbGesture", (_src, t: string) => {
       if (t === token) session.lastGesture = Date.now();
@@ -123,7 +125,8 @@ export class Session {
       if (checkUrl(this.opts.policy, req.url())) return route.abort("blockedbyclient");
       const post = req.method() !== "GET" && req.method() !== "HEAD";
       // during ask_human a POST passes only within a few seconds of a real human click or key press (isTrusted events,
-      // which page script can't fake), so a page can't POST on its own while the human takes their time.
+      // reported by the init script in launch()), so an ordinary page doesn't POST on its own while the human takes their
+      // time. A hostile page can still get past this (see launch()), as it can with fetch(), which was never gated.
       if (post && this.opts.policy.confirm.includes("submit") && !(this.humanDriving && (await this.recentGesture()))) {
         if (this.approvedTarget === null || noHash(req.url()) !== noHash(this.approvedTarget)) {
           this.blockedSubmit = true;
