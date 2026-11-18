@@ -66,13 +66,17 @@ url: https://news.ycombinator.com/
 ```
 
 ### Bot checks and CAPTCHAs
-local-browser does **not** solve or get around CAPTCHAs or bot checks. Those are a site's access control. When a snapshot shows one, it adds a line telling the agent to call `ask_human`. Then:
+local-browser does **not** solve or get around CAPTCHAs or bot checks: you do them, and every agent carries on by itself.
+
+**Automatic wait (headed, on by default).** When `open`, `click`, `type` or `back` lands on a bot check or CAPTCHA, local-browser brings that tab to the front with a yellow notice at the bottom and waits. You complete the check (for example Skyscanner's "press and hold"); once it's gone, the step returns as usual and the agent carries on, with no tool call from the agent. It waits up to 10 minutes, then the step is denied. It recognises reCAPTCHA, hCaptcha, Cloudflare (Turnstile and "Just a moment"), HUMAN/PerimeterX press-and-hold, DataDome, Arkose/FunCaptcha, AWS WAF, GeeTest, Friendly Captcha and Google's "unusual traffic" page. The profile keeps its cookies, so a site you've passed once usually asks less often.
+
+**`ask_human`, for anything else.** With `--headless` (or a check it doesn't recognise) a snapshot adds a line telling the agent to call `ask_human`. Then:
 
 1. A local tab opens with the agent's reason and **Done** / **Give up** buttons.
 2. You switch to the page's tab and do the check yourself (it's your real input, in the same browser session).
 3. You click **Done**. The agent gets a fresh snapshot and carries on with the same cookies.
 
-While you have the browser, a form submit goes through without an approval prompt only within 3 seconds of your own real click or key press, so an ordinary page doesn't send forms on its own while you take your time (one it sends in those 3 seconds after your click still passes). This is best effort, not a security boundary: a hostile page can get around it, as it can send data with `fetch()` anyway. The domain policy still applies. Only click **Done** after the check, and **Give up** if the agent asks for something you did not expect. The agent waits up to 10 minutes (some MCP clients time out tool calls sooner; if yours does, finish the check and ask the agent to take a snapshot). `ask_human` needs a visible window, so it's refused with `--headless`.
+While you have the browser (in both cases), a form submit goes through without an approval prompt only within 3 seconds of your own real click or key press, so an ordinary page doesn't send forms on its own while you take your time (one it sends in those 3 seconds after your click still passes). This is best effort, not a security boundary: a hostile page can get around it, as it can send data with `fetch()` anyway. During the automatic wait, a POST back to the check page's own site also passes, because Cloudflare challenges finish that way. The domain policy still applies. Only click **Done** after the check, and **Give up** if the agent asks for something you did not expect. The agent waits up to 10 minutes (some MCP clients time out tool calls sooner; if yours does, finish the check and ask the agent to take a snapshot). `ask_human` needs a visible window, so it's refused with `--headless`.
 
 ### Policy
 Copy [`local-browser.policy.example.json`](local-browser.policy.example.json) and pass it with `--policy`:

@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Automatic wait on bot checks and CAPTCHAs (headed): after `open`, `click`, `type` or `back`, if the page shows one, local-browser brings the tab to the front with a notice and waits until the user has completed it, then the step returns. Logged as `wait_for_human`.
+- Bot-check detection also covers DataDome, Arkose/FunCaptcha, AWS WAF, GeeTest, Friendly Captcha, Cloudflare "Just a moment" and Google's "unusual traffic" page.
+- `ask_human` follows a tab the user opens during the handoff (#14).
 - `ask_human(reason)` tool: hands the browser to the user for a CAPTCHA, a bot check or 2FA, waits for **Done**, then returns a fresh snapshot. Form submits go through during the handoff only within 3 seconds of the user's own real click or key press.
 - Snapshots add a note when the page shows a known bot check or CAPTCHA (visible reCAPTCHA, hCaptcha, Cloudflare Turnstile, HUMAN/PerimeterX "press and hold"; not invisible badges or long articles), telling the agent to call `ask_human` rather than try to solve it.
 
