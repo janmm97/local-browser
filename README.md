@@ -110,16 +110,16 @@ Measured on 2026-11-18 (Windows 11, Chrome), characters of raw HTML against a fu
 With the default `maxSnapshotChars` (12,000) the Wikipedia snapshot is cut to about 12 KB.
 
 ## How local-browser compares
-What each tool does by default, from each project's own documentation. Checked 2026-11-20. "Not stated" means the page I read does not say; the tool may still do it.
+What each tool does by default, from each project's own documentation. Checked 2026-11-20. "Not stated" means the pages checked do not say; the tool may still do it.
 
 | Tool | Browser and profile | What the model receives | Human approval before submit or password | Domain allow/block policy |
 |---|---|---|---|---|
-| local-browser (v0.1) | Your installed Chrome or Edge, with a separate profile in `~/.local-browser/profile` | Compact text snapshot with numbered refs; `screenshot()` is optional | Yes: a click on **Allow** in a separate tab for submits and password fields (`confirm` setting) | Yes: `allowedDomains` / `blockedDomains` (navigations only, see Known limits) |
+| local-browser (v0.1) | Your installed Chrome or Edge, with a separate profile in `~/.local-browser/profile` | Compact text snapshot with numbered refs; `screenshot()` is optional | Yes: a click on **Allow** in a separate tab for POST form submits and `type="password"` fields (`confirm` setting; see Known limits) | Yes: `allowedDomains` / `blockedDomains` (navigations only, see Known limits) |
 | Playwright MCP (Microsoft) | Headed by default; login state and cookies kept between sessions by default; Chrome, Firefox, WebKit and Edge listed. Other profile options: not checked | Accessibility snapshot ("not pixels"); screenshot tool also listed | Not stated | Not stated |
 | Browser MCP | Your own Chrome or other Chromium browser, through an extension ("Agents use your browser profile") | Snapshot on request (`snapshot -i`), plus `find`, `get text`, `screenshot`; each action answers with one line | A one-time pairing code and **Allow** click; no per-submit approval stated | Not stated; incognito tabs and browser pages such as chrome://settings are listed as off limits |
 | Browser Use | Local mode uses the Chrome, Chromium or Edge you have installed; its example comment says "a fresh local Chrome with a temp profile". Default run uses a Cloud browser | Not stated | Not stated | Not stated for local use; Cloud API has `allowedDomains` for secret bindings only |
 
-Sources (all read 2026-11-20): [Playwright MCP](https://playwright.dev/mcp/introduction), [Browser MCP](https://browsermcp.io), [Browser Use docs](https://docs.browser-use.com/introduction) and [its open-source quickstart](https://docs.browser-use.com/open-source/quickstart). local-browser column: this README. Playwright MCP's configuration page returned 404 when checked, so its profile and domain options are not checked. Spotted an error? Open an issue.
+Sources (all read 2026-11-20): [Playwright MCP](https://playwright.dev/mcp/introduction), [Browser MCP](https://browsermcp.io), [Browser Use docs](https://docs.browser-use.com/introduction) and [its open-source quickstart](https://docs.browser-use.com/open-source/quickstart). local-browser column: this README. Playwright MCP's profile and domain options are not checked here. Spotted an error? Open an issue.
 
 ## Known limits (v0.1)
 - The domain policy applies to page navigations, not to images, scripts or other subresources a page loads.
@@ -138,7 +138,7 @@ Sources (all read 2026-11-20): [Playwright MCP](https://playwright.dev/mcp/intro
 ## FAQ
 
 ### What is local-browser?
-local-browser is an MCP browser server and command-line tool for AI agents. It drives the Google Chrome or Microsoft Edge already installed on your machine, gives the agent compact text snapshots with numbered refs instead of raw HTML, and waits for a human to approve form submits and password entries. It is v0.1 software, requires Node.js 22+, and is licensed under MIT.
+local-browser is an MCP browser server and command-line tool for AI agents. It drives the Google Chrome or Microsoft Edge already installed on your machine, gives the agent compact text snapshots with numbered refs instead of raw HTML, and waits for a human to approve form submits and typing into password fields. It is v0.1 software, requires Node.js 22+, and is licensed under MIT.
 
 ### How do I add local-browser to Claude Code or another MCP client?
 Clone the repository, run `npm ci` and `npm run build`, then run `claude mcp add local-browser -- node /path/to/local-browser/dist/cli.js mcp`. Other MCP clients can run the same `node /path/to/local-browser/dist/cli.js mcp` command as a stdio server. local-browser opens its browser window on the first tool call. Chrome is the default; pass `--browser msedge` for Edge.
