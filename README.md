@@ -1,10 +1,14 @@
 # local-browser
 
-A safe, token-lean local browser for AI agents: a CLI and MCP server that drives the Chrome or Edge already on your machine.
+[![CI](https://github.com/janmm97/local-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/janmm97/local-browser/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Node.js 22+](https://img.shields.io/badge/node-22%2B-339933)
+
+local-browser is a browser MCP server and CLI for AI agents. It drives the Chrome or Edge already on your machine, with compact text snapshots instead of raw HTML and human approval before form submits.
+
+**Who it's for:** people who connect Claude Code or another MCP client to a real browser and want fewer characters per page and a person approving form submits.
 
 > **Status: v0.1, early.** Works, but expect rough edges. Feedback welcome in Issues.
 
-## Why
+## Why local-browser
 Agents waste tokens on raw HTML, and handing them your everyday browser profile is risky. local-browser:
 
 - **runs your installed Chrome/Edge with a separate profile**, so no cookies or saved passwords from your normal browsing;
@@ -78,7 +82,7 @@ local-browser does **not** solve or get around CAPTCHAs or bot checks: you do th
 
 While you have the browser (in both cases), a form submit goes through without an approval prompt only within 3 seconds of your own real click or key press, so an ordinary page doesn't send forms on its own while you take your time (one it sends in those 3 seconds after your click still passes). This is best effort, not a security boundary: a hostile page can get around it, as it can send data with `fetch()` anyway. During the automatic wait, a POST back to the check page's own site also passes, because Cloudflare challenges finish that way. The domain policy still applies. Only click **Done** after the check, and **Give up** if the agent asks for something you did not expect. The agent waits up to 10 minutes (some MCP clients time out tool calls sooner; if yours does, finish the check and ask the agent to take a snapshot). `ask_human` needs a visible window, so it's refused with `--headless`.
 
-### Policy
+### Domain policy
 Copy [`local-browser.policy.example.json`](local-browser.policy.example.json) and pass it with `--policy`:
 ```json
 {
@@ -105,6 +109,18 @@ Measured on 2026-11-18 (Windows 11, Chrome), characters of raw HTML against a fu
 
 With the default `maxSnapshotChars` (12,000) the Wikipedia snapshot is cut to about 12 KB.
 
+## How local-browser compares
+What each tool does by default, from each project's own documentation. Checked 2026-11-20. "Not stated" means the pages checked do not say; the tool may still do it.
+
+| Tool | Browser and profile | What the model receives | Human approval before submit or password | Domain allow/block policy |
+|---|---|---|---|---|
+| local-browser (v0.1) | Your installed Chrome or Edge, with a separate profile in `~/.local-browser/profile` | Compact text snapshot with numbered refs; `screenshot()` is optional | Yes: a click on **Allow** in a separate tab for POST form submits and `type="password"` fields (`confirm` setting; see Known limits) | Yes: `allowedDomains` / `blockedDomains` (navigations only, see Known limits) |
+| Playwright MCP (Microsoft) | Headed by default; login state and cookies kept between sessions by default; Chrome, Firefox, WebKit and Edge listed. Other profile options: not checked | Accessibility snapshot ("not pixels"); screenshot tool also listed | Not stated | Not stated |
+| Browser MCP | Your own Chrome or other Chromium browser, through an extension ("Agents use your browser profile") | Snapshot on request (`snapshot -i`), plus `find`, `get text`, `screenshot`; each action answers with one line | A one-time pairing code and **Allow** click; no per-submit approval stated | Not stated; incognito tabs and browser pages such as chrome://settings are listed as off limits |
+| Browser Use | Local mode uses the Chrome, Chromium or Edge you have installed; its example comment says "a fresh local Chrome with a temp profile". Default run uses a Cloud browser | Not stated | Not stated | Not stated for local use; Cloud API has `allowedDomains` for secret bindings only |
+
+Sources (all read 2026-11-20): [Playwright MCP](https://playwright.dev/mcp/introduction), [Browser MCP](https://browsermcp.io), [Browser Use docs](https://docs.browser-use.com/introduction) and [its open-source quickstart](https://docs.browser-use.com/open-source/quickstart). local-browser column: this README. Playwright MCP's profile and domain options are not checked here. Spotted an error? Open an issue.
+
 ## Known limits (v0.1)
 - The domain policy applies to page navigations, not to images, scripts or other subresources a page loads.
 - Redirects aren't checked while they happen: a redirected request (including a 307/308 re-POST of an approved form) is still sent; the agent is then taken off a blocked page.
@@ -118,6 +134,26 @@ With the default `maxSnapshotChars` (12,000) the Wikipedia snapshot is cut to ab
 - The log stores URLs, which can contain query text a site puts there (for example search forms).
 - `data-lb-ref` attributes are visible to page scripts. They are labels, not a security boundary.
 - CI tests the approval prompt headless (including a hostile button label); the full headed flow is a manual check (`npm run build && node test/approval.manual.mjs`).
+
+## FAQ
+
+### What is local-browser?
+local-browser is an MCP browser server and command-line tool for AI agents. It drives the Google Chrome or Microsoft Edge already installed on your machine, gives the agent compact text snapshots with numbered refs instead of raw HTML, and waits for a human to approve form submits and typing into password fields. It is v0.1 software, requires Node.js 22+, and is licensed under MIT.
+
+### How do I add local-browser to Claude Code or another MCP client?
+Clone the repository, run `npm ci` and `npm run build`, then run `claude mcp add local-browser -- node /path/to/local-browser/dist/cli.js mcp`. Other MCP clients can run the same `node /path/to/local-browser/dist/cli.js mcp` command as a stdio server. local-browser opens its browser window on the first tool call. Chrome is the default; pass `--browser msedge` for Edge.
+
+### Does local-browser use my everyday browser profile or passwords?
+No. local-browser runs your installed Chrome or Edge with its own separate profile, stored in `~/.local-browser/profile` (move it with `LOCAL_BROWSER_HOME`), so the agent gets no cookies or saved passwords from your normal browsing. That separate profile keeps its own cookies between runs. The action log stores URLs, which can contain query text, and redacts typed text.
+
+### Can local-browser solve CAPTCHAs?
+No. local-browser does not solve or get around CAPTCHAs or bot checks. When it recognises one in a visible window, it brings that tab to the front and waits up to 10 minutes while you complete it, then the agent carries on. For a check it does not recognise, the agent can call `ask_human` to hand you the browser. Both need a visible window; `--headless` denies those steps.
+
+### How many tokens do snapshots save compared with raw HTML?
+Measured on 2026-11-18 on Windows 11 with Chrome, local-browser's full snapshot of en.wikipedia.org/wiki/Web_browser was 31,397 characters against 413,306 characters of raw HTML, about 13× smaller. For news.ycombinator.com it was 10,553 against 34,365, about 3× smaller. These are character counts, not model tokens, and the default `maxSnapshotChars` (12,000) cuts longer snapshots.
+
+### What does the domain policy and approval step not protect against?
+local-browser's domain policy applies to page navigations, not to images, scripts or other subresources, and its submit approval does not cover `fetch`/XHR requests or forms that submit with GET. Localhost and private network addresses are not blocked by default, and page text is untrusted, so a page can hide instructions in snapshots. See [Known limits (v0.1)](#known-limits-v01).
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Please follow our [Code of Conduct](CODE_OF_CONDUCT.md).
