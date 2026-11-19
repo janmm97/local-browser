@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+- README: badges, "Who it's for" line, "How local-browser compares" table (sources checked 2026-11-20) and an FAQ.
+
 ### Added
 - Automatic wait on bot checks and CAPTCHAs (headed): after `open`, `click`, `type` or `back`, if the page shows one, local-browser brings the tab to the front with a notice and waits until the user has completed it, then the step returns. Logged as `wait_for_human`.
 - Bot-check detection also covers DataDome, Arkose/FunCaptcha, AWS WAF, GeeTest, Friendly Captcha, Cloudflare "Just a moment" and Google's "unusual traffic" page.
